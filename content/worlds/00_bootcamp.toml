@@ -1,0 +1,494 @@
+id = "w0"
+order = 0
+title = "Bootcamp"
+subtitle = "Absolute basics: what Terraform is, how HCL reads, and your very first apply."
+objective = "Basics"
+objective_code = "0"
+icon = "🏕️"
+
+# ---------------------------------------------------------------- stage 1
+[[stages]]
+id = "s1"
+title = "What is Terraform?"
+lesson = '''
+**Terraform** is a tool made by HashiCorp that lets you describe infrastructure (servers, networks, DNS records, databases, even plain files) in **text files**, then creates, changes and deletes that infrastructure for you.
+
+You write *what you want*. Terraform figures out *how to get there*.
+
+```hcl
+resource "local_file" "greeting" {
+  filename = "hello.txt"
+  content  = "Hello!"
+}
+```
+
+That block says: "I want a file called `hello.txt` containing `Hello!`." If the file doesn't exist, Terraform creates it. If the content is different, Terraform fixes it. If you delete the block, Terraform deletes the file.
+
+### Key words you'll hear constantly
+
+| Word | Meaning |
+|---|---|
+| **Configuration** | Your `.tf` files: the description of what you want |
+| **Resource** | One thing Terraform manages (a VM, a bucket, a file…) |
+| **Provider** | A plugin that knows how to talk to one platform (AWS, Azure, GitHub, your local disk…) |
+| **State** | Terraform's memory of what it created, stored in `terraform.tfstate` |
+| **Plan** | A preview of the changes Terraform is about to make |
+| **Apply** | Actually making those changes |
+
+> 💡 Terraform is a single program called `terraform`. You run it from a terminal, in the folder that holds your `.tf` files.
+
+Terraform configs are written in **HCL** (HashiCorp Configuration Language). It's designed to be easy for humans to read, and you'll learn to read it in the next stage.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "What is Terraform mainly used for?"
+options = [
+  "Writing application code like web servers",
+  "Describing infrastructure in files and letting a tool create and manage it",
+  "Monitoring servers and sending alerts",
+  "Compiling programs into containers",
+]
+answer = 1
+explain = "Terraform is an **Infrastructure as Code** tool: you describe the infrastructure you want, and Terraform builds and maintains it."
+
+[[stages.questions]]
+type = "single"
+q = "Which company created Terraform?"
+options = ["Google", "Amazon", "HashiCorp", "Docker Inc."]
+answer = 2
+explain = "Terraform is made by **HashiCorp**, which also makes Vault, Consul, Packer and Nomad. HashiCorp is now part of IBM."
+
+[[stages.questions]]
+type = "single"
+q = "What is a Terraform **provider**?"
+options = [
+  "A cloud company that sells you servers",
+  "A plugin that lets Terraform talk to a specific platform's API",
+  "The person who writes the configuration",
+  "A file that stores secrets",
+]
+answer = 1
+explain = "Providers are plugins. The `aws` provider talks to AWS, the `local` provider manages files on your disk, and so on."
+
+[[stages.questions]]
+type = "fill"
+q = "Terraform configuration files use which file extension? (include the dot)"
+answer = [".tf"]
+placeholder = ".???"
+explain = "Configuration files end in `.tf`. Terraform reads **all** `.tf` files in the current folder together."
+
+[[stages.questions]]
+type = "single"
+q = "What does Terraform use to remember what it has already created?"
+options = ["Its state file", "Your shell history", "The cloud provider's billing page", "Comments in your `.tf` files"]
+answer = 0
+explain = "Terraform records everything it manages in **state** (by default `terraform.tfstate`). That's how it knows what to update or delete next time."
+
+[[stages.questions]]
+type = "single"
+q = "You write `content = \"Hello!\"` for a file resource, but the real file says `Goodbye`. What will Terraform want to do?"
+options = [
+  "Nothing, because the file already exists",
+  "Change the file so it matches your configuration",
+  "Update your configuration to say Goodbye",
+  "Show an error and stop",
+]
+answer = 1
+explain = "Terraform is **declarative**: your configuration is the source of truth, and Terraform makes the real world match it."
+
+# ---------------------------------------------------------------- stage 2
+[[stages]]
+id = "s2"
+title = "Reading HCL"
+lesson = '''
+Everything in Terraform is written as **blocks**. A block has a **type**, zero or more **labels**, and a **body** in curly braces.
+
+```hcl
+# block type   label 1        label 2
+resource       "local_file"   "notes" {
+  filename = "notes.txt"        # argument: name = value
+  content  = "Remember the milk"
+}
+```
+
+- `resource` is the **block type**.
+- `"local_file"` is the **resource type** (it comes from the `local` provider, which is why it starts with `local_`).
+- `"notes"` is the **local name** you choose. Together they form the **address** `local_file.notes`.
+- `filename = "notes.txt"` is an **argument**: a name, `=`, and a value.
+
+### Values and types
+
+```hcl
+name    = "web"            # string
+count   = 3                # number
+enabled = true             # bool
+zones   = ["a", "b"]       # list
+tags    = { env = "dev" }  # map / object
+```
+
+### Comments
+
+```hcl
+# a single-line comment (most common)
+// also a single-line comment
+/* a
+   multi-line comment */
+```
+
+### Referencing other things
+
+You can use one block's values in another with `<TYPE>.<NAME>.<ATTRIBUTE>`:
+
+```hcl
+resource "local_file" "copy" {
+  filename = "copy.txt"
+  content  = local_file.notes.content
+}
+```
+
+Inside strings, use **interpolation**: `"Hello, ${var.name}!"`
+
+> 💡 Block bodies can contain **nested blocks** too, for example a `lifecycle { ... }` block inside a resource.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "In `resource \"local_file\" \"notes\" { ... }`, what is `\"notes\"`?"
+options = ["The provider name", "The resource type", "The local name you choose for this resource", "The file name on disk"]
+answer = 2
+explain = "The second label is the **local name**. It only has meaning inside your configuration. The address is `local_file.notes`."
+
+[[stages.questions]]
+type = "fill"
+q = "What is the full **address** of this resource?"
+code = '''
+resource "random_pet" "server_name" {
+  length = 2
+}
+'''
+answer = ["random_pet.server_name"]
+explain = "Address = `<resource type>.<local name>` → `random_pet.server_name`."
+
+[[stages.questions]]
+type = "multi"
+q = "Which of these are valid comment styles in HCL? (choose 3)"
+options = ["`# comment`", "`// comment`", "`/* comment */`", "`-- comment`", "`<!-- comment -->`"]
+answer = [0, 1, 2]
+explain = "HCL supports `#` and `//` for single lines and `/* */` for multiple lines. `#` is the idiomatic choice."
+
+[[stages.questions]]
+type = "single"
+q = "Which line is an **argument**?"
+options = ['`resource "aws_instance" "web" {`', '`instance_type = "t3.micro"`', "`}`", "`# web server`"]
+answer = 1
+explain = "Arguments assign a value to a name: `name = value`."
+
+[[stages.questions]]
+type = "single"
+q = "How do you insert a variable's value into the middle of a string?"
+options = ['`"Hello, $var.name"`', '`"Hello, ${var.name}"`', '`"Hello, {{var.name}}"`', '`"Hello, %var.name%"`']
+answer = 1
+explain = "`${ ... }` is **string interpolation** in HCL."
+
+[[stages.questions]]
+type = "single"
+q = "A resource type called `aws_s3_bucket` belongs to which provider?"
+options = ["`s3`", "`aws`", "`bucket`", "`hashicorp`"]
+answer = 1
+explain = "By convention the prefix before the first underscore is the provider: `aws_…` → `aws` provider, `local_file` → `local` provider."
+
+[[stages.questions]]
+type = "single"
+q = "What is the value type of `zones = [\"a\", \"b\", \"c\"]`?"
+options = ["string", "map", "list (or tuple)", "bool"]
+answer = 2
+explain = "Square brackets create a list/tuple. Curly braces with `key = value` create a map/object."
+
+# ---------------------------------------------------------------- stage 3
+[[stages]]
+id = "s3"
+title = "The terraform command"
+lesson = '''
+You drive Terraform from a terminal. Every command looks like:
+
+```bash
+terraform <subcommand> [options]
+```
+
+The ones you'll use 95% of the time:
+
+| Command | What it does |
+|---|---|
+| `terraform init` | Prepare the folder: download providers and modules. **Always first.** |
+| `terraform validate` | Check the configuration is syntactically valid and internally consistent |
+| `terraform fmt` | Reformat files to the standard style |
+| `terraform plan` | Show what *would* change |
+| `terraform apply` | Make the changes (asks for `yes` unless you add `-auto-approve`) |
+| `terraform destroy` | Delete everything this configuration manages |
+
+Other useful ones: `terraform version`, `terraform -help`, `terraform <cmd> -help`, `terraform show`, `terraform output`.
+
+### Where does Terraform look for files?
+
+Terraform works on the **current working directory**. It loads **every `.tf` file** in that folder (not subfolders) and treats them as one configuration. So file names are just for humans; common ones are:
+
+- `main.tf`: resources
+- `variables.tf`: input variables
+- `outputs.tf`: outputs
+- `providers.tf` or `versions.tf`: the `terraform {}` and `provider {}` blocks
+
+### What appears after `init`?
+
+- `.terraform/`: downloaded providers and modules (don't commit it)
+- `.terraform.lock.hcl`: the exact provider versions chosen (**do** commit it)
+
+> 💡 Install Terraform with your package manager (`sudo pacman -S terraform` on Arch/CachyOS, `brew install hashicorp/tap/terraform` on macOS, `winget install Hashicorp.Terraform` on Windows) or from developer.hashicorp.com/terraform/install.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "Which command must you run first in a brand-new Terraform folder?"
+options = ["`terraform plan`", "`terraform apply`", "`terraform init`", "`terraform start`"]
+answer = 2
+explain = "`terraform init` prepares the working directory: it downloads providers and modules and sets up the backend."
+
+[[stages.questions]]
+type = "single"
+q = "Your folder has `main.tf`, `vars.tf` and `outputs.tf`. Which does Terraform load?"
+options = ["Only `main.tf`", "All three, as one configuration", "Whichever you pass with `-file`", "Only files named in `terraform.tf`"]
+answer = 1
+explain = "Terraform loads **all** `.tf` files in the working directory and merges them. Names are for humans."
+
+[[stages.questions]]
+type = "single"
+q = "Which file created by `terraform init` **should** be committed to version control?"
+options = ["`.terraform/` folder", "`.terraform.lock.hcl`", "`terraform.tfstate`", "`crash.log`"]
+answer = 1
+explain = "Commit the **dependency lock file** so everyone uses the same provider versions. Never commit `.terraform/`. State usually lives in a remote backend and often contains secrets."
+
+[[stages.questions]]
+type = "fill"
+q = "Which flag skips the interactive `yes` prompt on `terraform apply`?"
+answer = ["-auto-approve", "--auto-approve"]
+placeholder = "-..."
+explain = "`terraform apply -auto-approve` applies without asking. It's handy in automation, but be careful with it."
+
+[[stages.questions]]
+type = "single"
+q = "How do you get help for a specific subcommand, for example `plan`?"
+options = ["`terraform help me plan`", "`terraform plan -help`", "`man terraform-plan`", "`terraform --docs plan`"]
+answer = 1
+explain = "`terraform <subcommand> -help` (or `terraform -help <subcommand>`) shows that command's options."
+
+# ---------------------------------------------------------------- lab 1
+[[stages]]
+id = "lab1"
+title = "Lab: Hello, file!"
+lesson = '''
+Time to run Terraform for real. Labs give you a **real sandbox folder** and a **real terminal** running your installed `terraform`. Nothing touches the cloud: we use the `local` provider, which manages files on your disk.
+
+The starter `main.tf` already has a `terraform` block that says which provider we need. Your job is to add a resource.
+'''
+[stages.lab]
+goal = '''
+1. In `main.tf`, add a `local_file` resource named **`hello`** that creates a file **`hello.txt`** with the content **`Hello, Terraform!`**
+2. Run `terraform init` (downloads the provider), then `terraform plan`, then `terraform apply`.
+3. Click **Check my work**.
+'''
+suggested = ["terraform init", "terraform plan", "terraform apply"]
+hints = [
+  "A resource block looks like `resource \"<TYPE>\" \"<NAME>\" { ... }`. Here the type is `local_file` and the name is `hello`.",
+  "The two arguments you need are `filename` and `content`.",
+]
+solution = '''
+```hcl
+resource "local_file" "hello" {
+  filename = "hello.txt"
+  content  = "Hello, Terraform!"
+}
+```
+Then run `terraform init` and `terraform apply`.
+'''
+[stages.lab.files]
+"main.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source = "hashicorp/local"
+    }
+  }
+}
+
+# TODO: add a local_file resource named "hello" here
+
+'''
+[[stages.lab.checks]]
+type = "initialized"
+msg = "Working directory initialized (`terraform init`)"
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'resource\s+"local_file"\s+"hello"'
+msg = "`resource \"local_file\" \"hello\"` exists in the configuration"
+[[stages.lab.checks]]
+type = "resource"
+address = "local_file.hello"
+msg = "`local_file.hello` is in the state (you applied it)"
+[[stages.lab.checks]]
+type = "file_contains"
+path = "hello.txt"
+text = "Hello, Terraform!"
+msg = "`hello.txt` exists and says `Hello, Terraform!`"
+
+# ---------------------------------------------------------------- lab 2
+[[stages]]
+id = "lab2"
+title = "Lab: Change it, then destroy it"
+lesson = '''
+Infrastructure changes over time. Terraform compares **configuration**, **state**, and **reality**, and plans the smallest set of actions to make reality match.
+
+In a plan you'll see symbols:
+
+| Symbol | Meaning |
+|---|---|
+| `+` | create |
+| `-` | destroy |
+| `~` | update in place |
+| `-/+` | destroy and re-create (replace) |
+| `<=` | read (data source) |
+
+Some arguments can't be changed in place. For `local_file`, changing `content` forces a **replacement** (`-/+`).
+
+This lab starts with a file that has already been applied for you.
+'''
+[stages.lab]
+goal = '''
+1. Run `terraform plan`. It should say there's nothing to change.
+2. Change the `content` of `local_file.note` to **`Version 2`** and run `terraform plan` again. Notice the `-/+` replace symbol and the `# forces replacement` note.
+3. Run `terraform apply`.
+4. Finally run `terraform destroy` to clean everything up.
+5. **Check my work.**
+'''
+suggested = ["terraform plan", "terraform apply", "terraform destroy", "terraform show"]
+setup = ["terraform init", "terraform apply"]
+hints = [
+  "Edit the `content = \"Version 1\"` line in `main.tf`, then plan and apply.",
+  "`terraform destroy` removes everything in state. The checks look for an empty state and that `note.txt` is gone.",
+]
+[stages.lab.files]
+"main.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source = "hashicorp/local"
+    }
+  }
+}
+
+resource "local_file" "note" {
+  filename = "note.txt"
+  content  = "Version 1"
+}
+'''
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'content\s*=\s*"Version 2"'
+msg = "Configuration now says `Version 2`"
+[[stages.lab.checks]]
+type = "history"
+pattern = 'terraform plan'
+msg = "You ran `terraform plan` to preview"
+[[stages.lab.checks]]
+type = "history"
+pattern = 'terraform apply'
+msg = "You applied the change"
+[[stages.lab.checks]]
+type = "history"
+pattern = 'terraform destroy|apply .*-destroy'
+msg = "You ran `terraform destroy`"
+[[stages.lab.checks]]
+type = "state_empty"
+msg = "State is empty (everything destroyed)"
+[[stages.lab.checks]]
+type = "file_absent"
+path = "note.txt"
+msg = "`note.txt` no longer exists"
+
+# ---------------------------------------------------------------- boss
+[[stages]]
+id = "boss"
+title = "Boss: The Gatekeeper"
+boss = true
+lesson = '''
+The Gatekeeper tests everything from Bootcamp: blocks, addresses, commands and the basic idea of Terraform. You need **80%** to pass.
+'''
+
+[[stages.questions]]
+type = "order"
+q = "Put the basic Terraform workflow in order for a brand-new project."
+items = ["Write `.tf` configuration", "`terraform init`", "`terraform plan`", "`terraform apply`"]
+explain = "**Write → init → plan → apply.** `init` is needed once per folder (and again when providers, modules or backend change)."
+
+[[stages.questions]]
+type = "single"
+q = "What does the `-/+` symbol mean in a plan?"
+options = ["Update in place", "Destroy, then create a replacement", "Read a data source", "Import an existing resource"]
+answer = 1
+explain = "`-/+` means **replace**: the resource is destroyed and re-created (or created first, with `create_before_destroy`)."
+
+[[stages.questions]]
+type = "fill"
+q = "What address refers to this block?"
+code = '''
+resource "local_file" "readme" {
+  filename = "README.md"
+  content  = "hi"
+}
+'''
+answer = ["local_file.readme"]
+explain = "Resource type + local name: `local_file.readme`."
+
+[[stages.questions]]
+type = "single"
+q = "Which folder holds downloaded provider plugins after `terraform init`?"
+options = ["`~/.providers`", "`.terraform/`", "`/usr/lib/terraform`", "`terraform.d/cache`"]
+answer = 1
+explain = "Providers and modules are installed into the hidden `.terraform/` folder inside your working directory."
+
+[[stages.questions]]
+type = "single"
+q = "You delete a resource block from your configuration and run `terraform apply`. What happens?"
+options = [
+  "Nothing, because Terraform only creates things",
+  "Terraform destroys that resource, since it's in state but no longer in config",
+  "Terraform errors because state and config differ",
+  "Terraform keeps it but marks it as orphaned forever",
+]
+answer = 1
+explain = "Anything in **state** that's no longer in **configuration** is planned for destruction (unless you use a `removed` block to just forget it, covered later)."
+
+[[stages.questions]]
+type = "single"
+q = "Which command only previews changes and never modifies real infrastructure?"
+options = ["`terraform apply`", "`terraform plan`", "`terraform destroy`", "`terraform init`"]
+answer = 1
+explain = "`plan` is a dry run. It refreshes what it knows and shows the proposed actions."
+
+[[stages.questions]]
+type = "multi"
+q = "Which statements about Terraform files are true? (choose 2)"
+options = [
+  "All `.tf` files in the working directory are loaded together",
+  "You must name your main file `main.tf` or Terraform won't run",
+  "Files in sub-folders are loaded automatically",
+  "File names are only for human organization",
+]
+answer = [0, 3]
+explain = "Terraform loads every `.tf` file in the current folder. Sub-folders are **not** loaded automatically; that's what modules are for."
+
+[[stages.questions]]
+type = "single"
+q = "What language are Terraform configuration files written in?"
+options = ["YAML", "JSON only", "HCL (HashiCorp Configuration Language)", "Python"]
+answer = 2
+explain = "HCL is the native syntax. Terraform also accepts a JSON variant in `.tf.json` files, mostly for machine-generated config."

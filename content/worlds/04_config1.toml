@@ -1,0 +1,754 @@
+id = "w4"
+order = 4
+title = "Configuration I"
+subtitle = "Resources vs data sources, references, variables and outputs, and complex types."
+objective = "Objective 4a–4d · Terraform configuration"
+objective_code = "4"
+icon = "🧱"
+
+[[stages]]
+id = "s1"
+title = "resource vs data"
+lesson = '''
+### `resource` blocks: things Terraform **manages**
+Terraform creates, updates and deletes them. They're tracked in state.
+
+```hcl
+resource "aws_instance" "web" {
+  ami           = "ami-0abc123"
+  instance_type = "t3.micro"
+}
+```
+
+### `data` blocks: things Terraform **reads**
+A **data source** fetches information about something that already exists, or that some other configuration manages. Terraform never creates or destroys it.
+
+```hcl
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"]
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/*-24.04-amd64-server-*"]
+  }
+}
+
+resource "aws_instance" "web" {
+  ami           = data.aws_ami.ubuntu.id     # note the data. prefix
+  instance_type = "t3.micro"
+}
+```
+
+| | `resource` | `data` |
+|---|---|---|
+| Purpose | Create & manage | Read / look up |
+| Address | `aws_instance.web` | `data.aws_ami.ubuntu` |
+| Plan symbol | `+ ~ - -/+` | `<=` (read) |
+| Lifecycle | Terraform owns it | Owned elsewhere |
+
+Data sources are usually read during **plan**. If they depend on values that are only known after apply, they're read during **apply** instead.
+
+> 📝 `terraform_remote_state` is a special data source that reads **outputs** from another configuration's state.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "What is the main difference between a `resource` and a `data` block?"
+options = [
+  "Resources are read-only; data sources create infrastructure",
+  "Resources are created and managed by Terraform; data sources only read existing information",
+  "Data sources are only for databases",
+  "There is no difference; they're aliases",
+]
+answer = 1
+obj = "4a"
+explain = "Resources = manage the lifecycle. Data sources = look things up."
+
+[[stages.questions]]
+type = "fill"
+q = "How do you reference the `id` attribute of `data \"aws_vpc\" \"main\"`?"
+answer = ["data.aws_vpc.main.id"]
+obj = "4a"
+explain = "Data source references start with `data.`: `data.aws_vpc.main.id`."
+
+[[stages.questions]]
+type = "single"
+q = "In a plan, which symbol shows a data source being read?"
+options = ["`+`", "`~`", "`<=`", "`-/+`"]
+answer = 2
+obj = "4a"
+explain = "`<=` means \"read\" (a data source being read during apply)."
+
+[[stages.questions]]
+type = "single"
+q = "You need the ID of a VPC created by the networking team's separate Terraform configuration. What could you use?"
+options = [
+  "A `resource \"aws_vpc\"` block with the same name",
+  "A data source, such as `data \"aws_vpc\"` with filters, or `terraform_remote_state`",
+  "`terraform import` into your own state",
+  "Copy their state file into your folder",
+]
+answer = 1
+obj = "4a"
+explain = "Read it with a data source. Declaring it as a resource or importing it would make **you** manage it, and conflict with the other team."
+
+[[stages.questions]]
+type = "single"
+q = "Does `terraform destroy` delete the objects that your data sources read?"
+options = ["Yes", "No, data sources are read-only and not managed", "Only if `force = true`", "Only for local data sources"]
+answer = 1
+obj = "4a"
+explain = "Terraform never destroys what it only reads."
+
+[[stages]]
+id = "lab1"
+title = "Lab: Read with a data source"
+lesson = '''
+An `inventory.txt` file already exists. Terraform didn't create it and shouldn't manage it. Use the **`local_file` data source** to read it, then build a summary file from its content.
+'''
+[stages.lab]
+goal = '''
+1. Add `data "local_file" "inventory"` that reads `inventory.txt`.
+2. Add `resource "local_file" "summary"` writing **`summary.txt`** whose content is `Inventory:` followed by a newline and the inventory's content.
+3. `init` and `apply`. In the plan, notice that the data source isn't listed as something to create.
+'''
+hints = [
+  "The data source needs just one argument: `filename = \"inventory.txt\"`.",
+  "`content = \"Inventory:\\n${data.local_file.inventory.content}\"`",
+]
+solution = '''
+```hcl
+data "local_file" "inventory" {
+  filename = "inventory.txt"
+}
+
+resource "local_file" "summary" {
+  filename = "summary.txt"
+  content  = "Inventory:\n${data.local_file.inventory.content}"
+}
+```
+'''
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+'''
+"main.tf" = '''
+# Read inventory.txt with a data source, then write summary.txt
+'''
+"inventory.txt" = '''
+web-01
+web-02
+db-01
+'''
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'data\s+"local_file"\s+"inventory"'
+msg = "`data \"local_file\" \"inventory\"` declared"
+[[stages.lab.checks]]
+type = "resource"
+address = "data.local_file.inventory"
+msg = "Data source was read (it's in state as a data resource)"
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'data\.local_file\.inventory\.content'
+msg = "`summary` uses `data.local_file.inventory.content`"
+[[stages.lab.checks]]
+type = "file_regex"
+path = "summary.txt"
+pattern = '^Inventory:\n(.|\n)*db-01'
+msg = "`summary.txt` starts with `Inventory:` and lists the hosts"
+
+[[stages]]
+id = "s2"
+title = "References & dependencies by reference"
+lesson = '''
+Every resource exports **attributes** that other blocks can use.
+
+- **Arguments** are what you set: `instance_type = "t3.micro"`.
+- **Attributes** are what you can read, including computed ones known only after creation: `aws_instance.web.id`, `.public_ip`, `.arn`.
+
+### Reference syntax
+
+| What | Syntax |
+|---|---|
+| Resource attribute | `<TYPE>.<NAME>.<ATTR>` → `aws_instance.web.private_ip` |
+| Data source attribute | `data.<TYPE>.<NAME>.<ATTR>` |
+| Input variable | `var.<NAME>` |
+| Local value | `local.<NAME>` |
+| Module output | `module.<NAME>.<OUTPUT>` |
+| With `count` | `aws_instance.web[0].id` |
+| With `for_each` | `aws_instance.web["blue"].id` |
+| Special values | `path.module`, `path.root`, `path.cwd`, `terraform.workspace` |
+
+### Cross-resource references create dependencies
+```hcl
+resource "aws_eip" "ip" {
+  instance = aws_instance.web.id     # implicit dependency
+}
+```
+Because `aws_eip.ip` references `aws_instance.web`, Terraform creates the instance **first** and destroys it **last**. This is an **implicit dependency**, and it's the preferred way.
+
+`(known after apply)` in a plan means the value is computed by the provider during creation, such as an ID.
+
+### Locals
+```hcl
+locals {
+  name_prefix = "${var.project}-${var.environment}"
+}
+# use: local.name_prefix   (block is "locals", reference is "local.")
+```
+'''
+
+[[stages.questions]]
+type = "single"
+q = "What does `(known after apply)` mean in a plan?"
+options = [
+  "The value is secret",
+  "The value is computed by the provider and will only be known once the resource is created or updated",
+  "The plan failed",
+  "The value comes from a variable",
+]
+answer = 1
+obj = "4b"
+explain = "Computed attributes like IDs and IPs are only known after the provider creates the object."
+
+[[stages.questions]]
+type = "fill"
+q = "A `locals { region_code = \"euc1\" }` block exists. How do you reference the value?"
+answer = ["local.region_code"]
+obj = "4b"
+explain = "The block is `locals` (plural) but the reference is `local.` (singular)."
+
+[[stages.questions]]
+type = "fill"
+q = "`aws_instance.web` uses `count = 3`. How do you reference the `id` of the **second** instance?"
+answer = ["aws_instance.web[1].id"]
+obj = "4b"
+explain = "count indexes start at 0, so the second instance is `[1]`."
+
+[[stages.questions]]
+type = "single"
+q = "Resource B uses `subnet_id = aws_subnet.a.id`. What does Terraform infer?"
+options = [
+  "Nothing; you must add `depends_on`",
+  "An implicit dependency: create `aws_subnet.a` before B",
+  "B and A are created in parallel",
+  "A depends on B",
+]
+answer = 1
+obj = "4b"
+explain = "References create implicit dependencies automatically."
+
+[[stages.questions]]
+type = "single"
+q = "Which expression gives the filesystem path of the module where the expression is written?"
+options = ["`path.root`", "`path.module`", "`path.cwd`", "`module.path`"]
+answer = 1
+obj = "4b"
+explain = "`path.module` = the current module's directory; `path.root` = the root module's directory; `path.cwd` = where Terraform was run."
+
+[[stages.questions]]
+type = "single"
+q = "What is the difference between an argument and an attribute?"
+options = [
+  "There is none",
+  "Arguments are values you set in config; attributes are values a resource exposes for reference (including computed ones)",
+  "Attributes are set by you; arguments are computed",
+  "Arguments only exist in data sources",
+]
+answer = 1
+obj = "4b"
+explain = "You set arguments, and you read attributes. Most arguments are also readable as attributes."
+
+[[stages]]
+id = "s3"
+title = "Variables & outputs"
+lesson = '''
+### Input variables: the parameters of your configuration
+```hcl
+variable "environment" {
+  type        = string
+  description = "Deployment environment"
+  default     = "dev"          # optional; no default = required
+  sensitive   = false          # true = redact in CLI output
+  nullable    = true
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "environment must be dev, staging or prod."
+  }
+}
+```
+Use it as `var.environment`. A variable **without a default** is required: Terraform prompts for it (interactive) or errors (non-interactive).
+
+### Ways to set variables, from lowest to highest precedence
+1. `default` in the variable block
+2. Environment variables `TF_VAR_<name>` (e.g. `TF_VAR_environment=prod`)
+3. `terraform.tfvars`
+4. `terraform.tfvars.json`
+5. `*.auto.tfvars` / `*.auto.tfvars.json` (processed in lexical filename order)
+6. `-var` and `-var-file` on the command line (in the order given, so the **last one wins**)
+
+> 📝 **Exam favourite:** the CLI (`-var`, `-var-file`) **beats everything**. Environment variables are the **lowest** after defaults.
+
+Files named anything else (e.g. `prod.tfvars`) are only loaded with `-var-file=prod.tfvars`.
+
+### Outputs: the return values
+```hcl
+output "instance_ip" {
+  value       = aws_instance.web.public_ip
+  description = "Public IP of the web server"
+  sensitive   = false
+}
+```
+- Printed after `apply`; read later with `terraform output` (or `terraform output -json`, `terraform output -raw instance_ip`)
+- A child module's outputs are how it exposes values to its parent (`module.x.instance_ip`)
+- If an output references a sensitive value, the output **must** be marked `sensitive = true`, or Terraform errors
+- Sensitive outputs show as `<sensitive>`, but `terraform output -json` or `-raw` reveals them, and they're in state in plain text
+'''
+
+[[stages.questions]]
+type = "order"
+q = "Order these variable sources from LOWEST to HIGHEST precedence:"
+items = [
+  "Default value in the `variable` block",
+  "`TF_VAR_name` environment variable",
+  "`terraform.tfvars`",
+  "`*.auto.tfvars`",
+  "`-var` on the command line",
+]
+obj = "4c"
+explain = "default < env < terraform.tfvars < terraform.tfvars.json < *.auto.tfvars < -var / -var-file."
+
+[[stages.questions]]
+type = "single"
+q = "`TF_VAR_region=us-east-1` is set, `terraform.tfvars` has `region = \"eu-west-1\"`, and you run `terraform apply -var region=ap-south-1`. Which value is used?"
+options = ["us-east-1", "eu-west-1", "ap-south-1", "Terraform errors on the conflict"]
+answer = 2
+obj = "4c"
+explain = "`-var` on the command line has the highest precedence."
+
+[[stages.questions]]
+type = "single"
+q = "Which of these files does Terraform load **automatically**? (no flags)"
+options = ["`prod.tfvars`", "`variables.tfvars`", "`dev.auto.tfvars`", "`secrets.vars`"]
+answer = 2
+obj = "4c"
+explain = "Auto-loaded: `terraform.tfvars`, `terraform.tfvars.json`, and any `*.auto.tfvars(.json)`. Others need `-var-file`."
+
+[[stages.questions]]
+type = "fill"
+q = "What environment variable would set the input variable `db_name`?"
+answer = ["TF_VAR_db_name"]
+case_sensitive = true
+obj = "4c"
+explain = "`TF_VAR_` + the exact variable name: `TF_VAR_db_name`."
+
+[[stages.questions]]
+type = "single"
+q = "A variable has no `default`, you run `terraform plan` interactively, and no value is set anywhere. What happens?"
+options = ["Terraform uses an empty string", "Terraform prompts you to enter a value", "The variable is skipped", "Terraform uses null"]
+answer = 1
+obj = "4c"
+explain = "Required variables are prompted for interactively. In automation with `-input=false`, it's an error."
+
+[[stages.questions]]
+type = "single"
+q = "An output's value references a variable marked `sensitive = true`, but the output isn't marked sensitive. What happens?"
+options = [
+  "The value is printed in plain text",
+  "Terraform returns an error asking you to mark the output as sensitive",
+  "The output is silently skipped",
+  "The variable loses its sensitive flag",
+]
+answer = 1
+obj = "4c"
+explain = "Terraform refuses to expose sensitive values through an output unless that output is also marked `sensitive = true`."
+
+[[stages.questions]]
+type = "fill"
+q = "Which command prints the value of the output `lb_dns` with no quotes or formatting, suitable for shell scripts?"
+answer = ["terraform output -raw lb_dns"]
+obj = "4c"
+explain = "`terraform output -raw <name>` prints just the string."
+
+[[stages.questions]]
+type = "single"
+q = "Two var-files are passed: `terraform apply -var-file=a.tfvars -var-file=b.tfvars`. Both set `size`. Which wins?"
+options = ["a.tfvars", "b.tfvars", "Error", "Whichever is alphabetically first"]
+answer = 1
+obj = "4c"
+explain = "Command-line var-files and -var options are processed in order, so the **last** one wins."
+
+[[stages]]
+id = "lab2"
+title = "Lab: Variables, tfvars & outputs"
+lesson = '''
+`main.tf` already uses `var.environment` and `var.owner`, but nobody declared them. Declare them, feed values in through a `.tfvars` file, and expose outputs.
+'''
+[stages.lab]
+goal = '''
+1. Create **`variables.tf`** declaring:
+   - `environment`: `type = string`, `default = "dev"`, with a description
+   - `owner`: `type = string`, **no default** (required)
+2. Create **`terraform.tfvars`** setting `environment = "staging"` and an `owner` of your choice.
+3. Create **`outputs.tf`** with:
+   - an output `summary` = `local_file.env.content`
+   - an output `owner` = `var.owner`, marked **`sensitive = true`**
+4. `init`, `apply`, then try `terraform output` and `terraform output -raw owner`.
+'''
+suggested = ["terraform init", "terraform plan", "terraform apply", "terraform output", "terraform output -raw owner"]
+hints = [
+  "Use the ＋ New file button to create `variables.tf`, `terraform.tfvars` and `outputs.tf`.",
+  "tfvars syntax is just assignments: `environment = \"staging\"` on one line, `owner = \"you\"` on the next.",
+]
+solution = '''
+**variables.tf**
+```hcl
+variable "environment" {
+  type        = string
+  description = "Deployment environment"
+  default     = "dev"
+}
+
+variable "owner" {
+  type        = string
+  description = "Who owns this environment"
+}
+```
+**terraform.tfvars**
+```hcl
+environment = "staging"
+owner       = "platform-team"
+```
+**outputs.tf**
+```hcl
+output "summary" {
+  value = local_file.env.content
+}
+
+output "owner" {
+  value     = var.owner
+  sensitive = true
+}
+```
+'''
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+'''
+"main.tf" = '''
+resource "local_file" "env" {
+  filename = "environment.txt"
+  content  = "env=${var.environment} owner=${var.owner}"
+}
+'''
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'variable\s+"environment"\s*\{[^}]*type\s*=\s*string[^}]*default\s*=\s*"dev"|variable\s+"environment"\s*\{[^}]*default\s*=\s*"dev"[^}]*type\s*=\s*string'
+msg = "`environment` is a string variable with default `dev`"
+[[stages.lab.checks]]
+type = "config_not_regex"
+pattern = 'variable\s+"owner"\s*\{[^}]*default'
+msg = "`owner` has no default (it's required)"
+[[stages.lab.checks]]
+type = "file_regex"
+path = "terraform.tfvars"
+pattern = 'environment\s*=\s*"staging"'
+msg = "`terraform.tfvars` sets `environment = \"staging\"`"
+[[stages.lab.checks]]
+type = "attr"
+address = "local_file.env"
+attr = "content"
+regex = '^env=staging owner=\S+'
+msg = "Applied with `env=staging` and an owner"
+[[stages.lab.checks]]
+type = "output"
+name = "summary"
+msg = "Output `summary` exists"
+[[stages.lab.checks]]
+type = "output"
+name = "owner"
+sensitive = true
+msg = "Output `owner` exists and is marked sensitive"
+
+[[stages]]
+id = "s4"
+title = "Complex types"
+lesson = '''
+### Primitive types
+`string`, `number`, `bool`
+
+### Collection types: every element has the **same** type
+| Type | Example | Notes |
+|---|---|---|
+| `list(string)` | `["a", "b", "a"]` | ordered, duplicates allowed, index `[0]` |
+| `set(string)` | `toset(["a", "b"])` | unordered, **unique** values, no index |
+| `map(number)` | `{ small = 1, large = 4 }` | keys are always strings |
+
+### Structural types: elements can have **different** types
+| Type | Example |
+|---|---|
+| `object({ name = string, port = number })` | `{ name = "web", port = 80 }` |
+| `tuple([string, number, bool])` | `["web", 80, true]` |
+
+```hcl
+variable "servers" {
+  type = map(object({
+    size     = string
+    disk_gb  = number
+    public   = optional(bool, false)    # optional attribute with a default
+  }))
+}
+```
+
+- `any` lets Terraform infer the type.
+- Terraform **converts automatically** where it can (`"5"` ↔ `5`, list ↔ set). Use `tolist()`, `toset()`, `tomap()`, `tonumber()`, `tostring()` to be explicit.
+- `for_each` requires a **map** or a **set of strings**; a list must be converted with `toset()`.
+- Element access: `var.list[0]`, `var.map["key"]`, `var.obj.attr`.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "Which type stores **unique, unordered** values of the same type?"
+options = ["list", "set", "tuple", "object"]
+answer = 1
+obj = "4d"
+explain = "Sets are unordered and remove duplicates."
+
+[[stages.questions]]
+type = "single"
+q = "Which type allows elements of **different** types in a fixed order, like `[\"web\", 80, true]`?"
+options = ["list(any)", "tuple([string, number, bool])", "set(any)", "map(any)"]
+answer = 1
+obj = "4d"
+explain = "Tuples are structural: a fixed sequence where each position has its own type."
+
+[[stages.questions]]
+type = "single"
+q = "What is the difference between `map(string)` and `object({...})`?"
+options = [
+  "They are identical",
+  "A map has arbitrary keys whose values all share one type; an object has a fixed set of named attributes, each with its own type",
+  "Objects can only contain strings",
+  "Maps are ordered; objects are not",
+]
+answer = 1
+obj = "4d"
+explain = "map = same-typed values, any keys. object = fixed schema with per-attribute types."
+
+[[stages.questions]]
+type = "single"
+q = "`for_each = var.names` fails because `var.names` is a `list(string)`. What's the usual fix?"
+options = ["`for_each = tostring(var.names)`", "`for_each = toset(var.names)`", "`count = var.names`", "`for_each = var.names[*]`"]
+answer = 1
+obj = "4d"
+explain = "`for_each` accepts a map or a set of strings. Convert the list with `toset()`."
+
+[[stages.questions]]
+type = "fill"
+q = "What keyword declares an object attribute as optional, e.g. `public = ________(bool, false)`?"
+answer = ["optional"]
+obj = "4d"
+explain = "`optional(type, default)` inside an object type constraint (Terraform 1.3+)."
+
+[[stages.questions]]
+type = "single"
+q = "Given the variable below, how do you get web's port?"
+code = '''
+variable "apps" {
+  type = map(object({ port = number }))
+  default = {
+    web = { port = 80 }
+    api = { port = 8080 }
+  }
+}
+'''
+options = ['`var.apps.port["web"]`', '`var.apps["web"].port`', '`var.apps[0].port`', '`var.web.port`']
+answer = 1
+obj = "4d"
+explain = "Map lookup by key, then object attribute: `var.apps[\"web\"].port` (or `var.apps.web.port`)."
+
+[[stages.questions]]
+type = "multi"
+q = "Which are **collection** types (all elements share a single type)? (choose 3)"
+options = ["list", "map", "set", "object", "tuple"]
+answer = [0, 1, 2]
+obj = "4d"
+explain = "list, map and set are collection types. object and tuple are structural types."
+
+[[stages]]
+id = "lab3"
+title = "Lab: One file per user (map of objects)"
+lesson = '''
+`variables.tf` defines a `users` variable of type `map(object({ role = string, shell = string }))`. Create **one file per user** with `for_each`.
+'''
+[stages.lab]
+goal = '''
+1. In `main.tf`, add `resource "local_file" "user"` with `for_each = var.users`.
+2. Each file goes in `users/<name>.txt` and contains `role=<role>` and `shell=<shell>` on separate lines.
+   Inside the block, `each.key` is the user name and `each.value` is that user's object.
+3. Add an output **`usernames`** = `keys(var.users)`.
+4. `init`, `apply`, and look at the addresses in the output, like `local_file.user["alice"]`.
+'''
+hints = [
+  "`filename = \"users/${each.key}.txt\"`",
+  "`content = \"role=${each.value.role}\\nshell=${each.value.shell}\\n\"`",
+]
+solution = '''
+```hcl
+resource "local_file" "user" {
+  for_each = var.users
+
+  filename = "users/${each.key}.txt"
+  content  = "role=${each.value.role}\nshell=${each.value.shell}\n"
+}
+
+output "usernames" {
+  value = keys(var.users)
+}
+```
+'''
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+'''
+"variables.tf" = '''
+variable "users" {
+  type = map(object({
+    role  = string
+    shell = string
+  }))
+  default = {
+    alice = { role = "admin", shell = "/bin/fish" }
+    bob   = { role = "developer", shell = "/bin/bash" }
+    carol = { role = "auditor", shell = "/bin/zsh" }
+  }
+}
+'''
+"main.tf" = '''
+# Create one local_file per user with for_each
+'''
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'for_each\s*=\s*var\.users'
+msg = "Uses `for_each = var.users`"
+[[stages.lab.checks]]
+type = "resource_count"
+rtype = "local_file"
+count = 3
+msg = "Three `local_file` instances exist"
+[[stages.lab.checks]]
+type = "attr"
+address = 'local_file.user["alice"]'
+attr = "content"
+regex = 'role=admin\s*\nshell=/bin/fish'
+msg = "`users/alice.txt` has `role=admin` and `shell=/bin/fish`"
+[[stages.lab.checks]]
+type = "file_exists"
+path = "users/carol.txt"
+msg = "`users/carol.txt` exists"
+[[stages.lab.checks]]
+type = "output"
+name = "usernames"
+equals = ["alice", "bob", "carol"]
+msg = "Output `usernames` is `[\"alice\", \"bob\", \"carol\"]`"
+
+[[stages]]
+id = "boss"
+title = "Boss: The Type Chimera"
+boss = true
+lesson = "Three heads: resources/data, variables/outputs, and types. 80% to pass."
+
+[[stages.questions]]
+type = "single"
+q = "`terraform.tfvars` sets `env = \"test\"` and `zz.auto.tfvars` sets `env = \"qa\"`. No CLI flags. Which value wins?"
+options = ["test", "qa", "Error: duplicate", "The default"]
+answer = 1
+obj = "4c"
+explain = "`*.auto.tfvars` files are loaded after `terraform.tfvars`, so they win."
+
+[[stages.questions]]
+type = "single"
+q = "Which reference is valid for a resource declared with `for_each = { blue = ..., green = ... }`?"
+options = ['`aws_instance.app[0]`', '`aws_instance.app["blue"]`', '`aws_instance.app.blue[0]`', '`aws_instance["blue"].app`']
+answer = 1
+obj = "4b"
+explain = "for_each instances are addressed by key: `aws_instance.app[\"blue\"]`."
+
+[[stages.questions]]
+type = "single"
+q = "You want to look up the latest Ubuntu image ID published by Canonical to use in your instance. What do you use?"
+options = ["`resource \"aws_ami\"`", "`data \"aws_ami\"`", "`variable \"aws_ami\"`", "`output \"aws_ami\"`"]
+answer = 1
+obj = "4a"
+explain = "Looking up existing information = data source."
+
+[[stages.questions]]
+type = "single"
+q = "Which variable type would best fit `{ name = \"web\", replicas = 3, public = true }`?"
+options = ["`map(string)`", "`object({ name = string, replicas = number, public = bool })`", "`list(any)`", "`set(string)`"]
+answer = 1
+obj = "4d"
+explain = "Mixed attribute types with fixed names make it an object."
+
+[[stages.questions]]
+type = "multi"
+q = "Which ways can you supply a value for a variable named `token`? (choose 3)"
+options = ["`TF_VAR_token` environment variable", "`-var 'token=...'`", "A `*.auto.tfvars` file", "`TOKEN` environment variable", "`terraform.lock.hcl`"]
+answer = [0, 1, 2]
+obj = "4c"
+explain = "Env vars must be prefixed with `TF_VAR_`. The lock file has nothing to do with variables."
+
+[[stages.questions]]
+type = "single"
+q = "An output is marked `sensitive = true`. Which command will still show its real value?"
+options = ["`terraform output`", "`terraform output -json`", "`terraform plan`", "`terraform validate`"]
+answer = 1
+obj = "4c"
+explain = "`terraform output` shows `<sensitive>`, but `-json` (and `-raw <name>`) print the actual value."
+
+[[stages.questions]]
+type = "single"
+q = "What does `toset([\"a\", \"b\", \"a\"])` return?"
+options = ['`["a", "b", "a"]`', 'A set with "a" and "b"', '`3`', 'An error, because of duplicates']
+answer = 1
+obj = "4d"
+explain = "Converting to a set removes duplicates (and ordering)."
+
+[[stages.questions]]
+type = "single"
+q = "What is the reference for output `vpc_id` of `module \"network\"`?"
+options = ["`output.network.vpc_id`", "`module.network.vpc_id`", "`network.vpc_id`", "`module.network.outputs.vpc_id`"]
+answer = 1
+obj = "4b"
+explain = "`module.<NAME>.<OUTPUT>`."
+
+[[stages.questions]]
+type = "single"
+q = "Which file is NOT loaded automatically when you run `terraform plan`?"
+options = ["`terraform.tfvars`", "`terraform.tfvars.json`", "`prod.auto.tfvars`", "`prod.tfvars`"]
+answer = 3
+obj = "4c"
+explain = "`prod.tfvars` needs `-var-file=prod.tfvars`."

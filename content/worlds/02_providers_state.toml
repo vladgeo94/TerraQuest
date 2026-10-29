@@ -1,0 +1,637 @@
+id = "w2"
+order = 2
+title = "Providers & State"
+subtitle = "Install and pin providers, combine several of them, and understand Terraform state."
+objective = "Objective 2 · Terraform fundamentals"
+objective_code = "2"
+icon = "🔌"
+
+[[stages]]
+id = "s1"
+title = "How Terraform uses providers"
+lesson = '''
+Terraform is split in two:
+
+- **Terraform core** (the `terraform` binary): reads config, builds the dependency graph, makes plans, manages state.
+- **Providers**: separate plugin binaries that know how to talk to one API. Core talks to them over **RPC (gRPC)**.
+
+```
+terraform (core)  ⇄  provider plugin  ⇄  platform API (AWS, GitHub, …)
+```
+
+A provider gives you:
+- **Resource types** (`aws_instance`, `local_file`): things to create/manage
+- **Data sources** (`data "aws_ami"`): things to *read*
+- Sometimes **functions** (provider-defined functions, called like `provider::aws::arn_parse(...)`)
+- Sometimes **ephemeral resources** (short-lived values that aren't stored in state, Terraform 1.10+)
+
+### Provider tiers in the Registry
+| Tier | Who maintains it |
+|---|---|
+| **Official** | HashiCorp |
+| **Partner** | Third-party companies, verified by HashiCorp |
+| **Community** | Individuals and community members |
+| *(Archived)* | No longer maintained |
+
+### Configuring a provider
+
+```hcl
+provider "aws" {
+  region = "eu-central-1"
+}
+```
+
+The `provider` block holds settings like region or credentials. Many providers can also read settings from environment variables (e.g. `AWS_REGION`). **Don't hard-code secrets** in provider blocks.
+
+> 📝 Providers are versioned and released **separately** from Terraform itself.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "How does Terraform core communicate with provider plugins?"
+options = ["Through shared memory", "Over RPC (gRPC)", "By reading each other's log files", "Through HTTP calls to registry.terraform.io"]
+answer = 1
+obj = "2b"
+explain = "Providers are separate executables. Core launches them and talks to them via gRPC."
+
+[[stages.questions]]
+type = "single"
+q = "Which provider tier is maintained by HashiCorp?"
+options = ["Community", "Partner", "Official", "Verified"]
+answer = 2
+obj = "2b"
+explain = "**Official** providers are owned and maintained by HashiCorp. **Partner** providers are maintained by technology partners."
+
+[[stages.questions]]
+type = "multi"
+q = "What can a provider contribute to Terraform? (choose 3)"
+options = ["Resource types", "Data sources", "Functions", "New HCL keywords like `loop`", "Backends for state"]
+answer = [0, 1, 2]
+obj = "2b"
+explain = "Providers supply resources, data sources and (since 1.8) functions. Backends are built into Terraform core."
+
+[[stages.questions]]
+type = "single"
+q = "Are providers released together with Terraform?"
+options = [
+  "Yes, every Terraform release bundles all providers",
+  "No, providers are versioned and released independently",
+  "Only official providers are bundled",
+  "Only on major versions",
+]
+answer = 1
+obj = "2b"
+explain = "Providers have their own release cycle. That's why you pin them separately."
+
+[[stages.questions]]
+type = "single"
+q = "What is the safest way to give the AWS provider credentials?"
+options = [
+  "Hard-code `access_key` and `secret_key` in the provider block",
+  "Use environment variables, shared credentials files, or workload identity instead of hard-coding",
+  "Put them in a resource's `tags`",
+  "Commit them to `terraform.tfvars` in Git",
+]
+answer = 1
+obj = "2b"
+explain = "Keep secrets out of code. Use env vars, credential files, IAM roles / OIDC, or dynamic credentials."
+
+[[stages]]
+id = "s2"
+title = "Installing & versioning providers"
+lesson = '''
+You declare the providers you need inside the `terraform` block:
+
+```hcl
+terraform {
+  required_version = ">= 1.5.0"        # Terraform CLI version constraint
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"         # <NAMESPACE>/<TYPE>
+      version = "~> 5.0"
+    }
+  }
+}
+```
+
+- `source = "hashicorp/aws"` is short for `registry.terraform.io/hashicorp/aws` (hostname/namespace/type).
+- `terraform init` downloads matching versions into `.terraform/providers/`.
+
+### Version constraint operators
+
+| Constraint | Means |
+|---|---|
+| `= 1.2.0` or `1.2.0` | exactly 1.2.0 |
+| `!= 1.2.0` | anything but 1.2.0 |
+| `>= 1.2.0`, `> `, `<`, `<=` | comparisons |
+| `~> 1.2.0` | **pessimistic**: `>= 1.2.0, < 1.3.0` (patch updates only) |
+| `~> 1.2` | `>= 1.2, < 2.0` (minor updates allowed) |
+| `>= 1.2, < 2.0` | combine with commas |
+
+### The dependency lock file: `.terraform.lock.hcl`
+- Created/updated by `terraform init`
+- Records the **exact provider versions** selected, plus checksums (hashes)
+- Future `init`s reuse those exact versions, even if newer ones match your constraint
+- **Commit it to Git**
+- It tracks **providers only**, not modules
+- To move to newer versions within your constraints: `terraform init -upgrade`
+
+> 📝 **Exam favourite:** `~> 1.2.0` allows 1.2.x only; `~> 1.2` allows 1.x (≥ 1.2).
+'''
+
+[[stages.questions]]
+type = "single"
+q = "Which versions does `version = \"~> 3.1.0\"` allow?"
+options = ["3.1.0 only", ">= 3.1.0 and < 3.2.0", ">= 3.1.0 and < 4.0.0", "Any 3.x version"]
+answer = 1
+obj = "2a"
+explain = "With three parts, `~>` only lets the **last** part increase: 3.1.0, 3.1.1, 3.1.9… but not 3.2.0."
+
+[[stages.questions]]
+type = "single"
+q = "Which versions does `version = \"~> 3.1\"` allow?"
+options = ["3.1.x only", ">= 3.1 and < 4.0", ">= 3.0 and < 3.2", "Exactly 3.1"]
+answer = 1
+obj = "2a"
+explain = "With two parts, the minor version may increase: 3.1, 3.2 … 3.99, but not 4.0."
+
+[[stages.questions]]
+type = "fill"
+q = "Which file records the exact provider versions and checksums chosen during `terraform init`?"
+answer = [".terraform.lock.hcl", "terraform.lock.hcl"]
+placeholder = ".terraform....."
+obj = "2a"
+explain = "The **dependency lock file** `.terraform.lock.hcl`. Commit it."
+
+[[stages.questions]]
+type = "fill"
+q = "A newer provider version exists that satisfies your constraint, but the lock file pins an older one. Which command upgrades it? (full command)"
+answer = ["terraform init -upgrade", "terraform init --upgrade"]
+obj = "2a"
+explain = "`terraform init -upgrade` picks the newest versions allowed by your constraints and updates the lock file."
+
+[[stages.questions]]
+type = "single"
+q = "What does `source = \"hashicorp/random\"` expand to?"
+options = [
+  "github.com/hashicorp/random",
+  "registry.terraform.io/hashicorp/random",
+  "releases.hashicorp.com/random",
+  "app.terraform.io/hashicorp/random",
+]
+answer = 1
+obj = "2a"
+explain = "The default hostname is the public registry: `registry.terraform.io/<namespace>/<type>`."
+
+[[stages.questions]]
+type = "single"
+q = "Where do you constrain the version of the Terraform CLI itself?"
+options = [
+  "`provider \"terraform\" { version = ... }`",
+  "`required_version` inside the `terraform` block",
+  "In `.terraform.lock.hcl`",
+  "With the `TF_VERSION` environment variable",
+]
+answer = 1
+obj = "2a"
+explain = "`terraform { required_version = \">= 1.5\" }`. Terraform refuses to run if its version doesn't match."
+
+[[stages.questions]]
+type = "single"
+q = "Does `.terraform.lock.hcl` lock module versions?"
+options = ["Yes, both providers and modules", "No, it only tracks providers", "Only registry modules", "Only Git modules"]
+answer = 1
+obj = "2a"
+explain = "The lock file covers **providers only**. Pin module versions with the `version` argument (registry) or `?ref=` (Git)."
+
+[[stages]]
+id = "lab1"
+title = "Lab: Pin your providers"
+lesson = '''
+Unpinned providers mean a teammate could get a different (maybe breaking) version tomorrow. Let's pin them.
+'''
+[stages.lab]
+goal = '''
+1. In `versions.tf`, add `required_version = ">= 1.5.0"` to the `terraform` block.
+2. Pin **random** to `"~> 3.0"` and **local** to `"~> 2.0"` (add a `version` argument to each).
+3. Run `terraform init`, then open the generated `.terraform.lock.hcl` tab and look at what it recorded.
+4. Run `terraform apply`.
+'''
+suggested = ["terraform init", "terraform providers", "terraform plan", "terraform apply"]
+hints = [
+  "Each provider entry is an object: `random = { source = \"hashicorp/random\", version = \"~> 3.0\" }`.",
+  "`required_version` goes directly inside `terraform { ... }`, not inside `required_providers`.",
+]
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    random = {
+      source = "hashicorp/random"
+    }
+    local = {
+      source = "hashicorp/local"
+    }
+  }
+}
+'''
+"main.tf" = '''
+resource "random_pet" "project" {
+  length = 2
+}
+
+resource "local_file" "project" {
+  filename = "project.txt"
+  content  = "Project codename: ${random_pet.project.id}"
+}
+'''
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'required_version\s*=\s*">=\s*1\.5(\.0)?"'
+msg = "`required_version = \">= 1.5.0\"` is set"
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'random\s*=\s*\{[^}]*version\s*=\s*"~>\s*3\.0"'
+msg = "random is pinned to `~> 3.0`"
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'local\s*=\s*\{[^}]*version\s*=\s*"~>\s*2\.0"'
+msg = "local is pinned to `~> 2.0`"
+[[stages.lab.checks]]
+type = "lockfile"
+provider = "registry.terraform.io/hashicorp/random"
+msg = "Lock file records the random provider"
+[[stages.lab.checks]]
+type = "lockfile"
+provider = "~> 2.0"
+msg = "Lock file was refreshed with your new constraints (re-run `terraform init`)"
+[[stages.lab.checks]]
+type = "resource"
+address = "local_file.project"
+msg = "Configuration applied"
+
+[[stages]]
+id = "s3"
+title = "Multiple providers & aliases"
+lesson = '''
+A configuration can use as many providers as it needs:
+
+```hcl
+terraform {
+  required_providers {
+    aws        = { source = "hashicorp/aws", version = "~> 5.0" }
+    cloudflare = { source = "cloudflare/cloudflare", version = "~> 4.0" }
+  }
+}
+```
+
+### Same provider, different settings: `alias`
+Need resources in **two AWS regions**? Declare the provider twice, giving the second an `alias`:
+
+```hcl
+provider "aws" {
+  region = "eu-central-1"          # default configuration (no alias)
+}
+
+provider "aws" {
+  alias  = "us"
+  region = "us-east-1"
+}
+
+resource "aws_s3_bucket" "logs_eu" {
+  bucket = "my-logs-eu"            # uses the default provider
+}
+
+resource "aws_s3_bucket" "logs_us" {
+  provider = aws.us                # <PROVIDER>.<ALIAS>
+  bucket   = "my-logs-us"
+}
+```
+
+- A resource without a `provider` argument uses the **default** (un-aliased) configuration.
+- Reference an alias as `aws.us`, **without quotes**.
+- Passing aliases into a module: `providers = { aws = aws.us }`.
+
+### How Terraform picks the provider for a resource
+By default it takes the prefix of the resource type: `aws_s3_bucket` → `aws`. The local name in `required_providers` (here `aws`) is what that prefix matches.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "You need resources in two AWS regions in one configuration. What do you use?"
+options = ["Two separate Terraform installations", "A second `provider \"aws\"` block with an `alias`", "Workspaces", "The `region` meta-argument on each resource"]
+answer = 1
+obj = "2c"
+explain = "Provider **aliases** let you have several configurations of the same provider."
+
+[[stages.questions]]
+type = "fill"
+q = "Complete the argument so this resource uses the aliased provider: `provider = ________`"
+code = '''
+provider "google" {
+  alias  = "europe"
+  region = "europe-west1"
+}
+
+resource "google_storage_bucket" "eu" {
+  provider = ________
+  name     = "my-eu-bucket"
+  location = "EU"
+}
+'''
+answer = ["google.europe"]
+obj = "2c"
+explain = "Reference it as `<provider name>.<alias>`, without quotes: `google.europe`."
+
+[[stages.questions]]
+type = "single"
+q = "A resource has no `provider` argument and there are two `aws` provider blocks, one with `alias = \"west\"` and one without. Which does it use?"
+options = ["The aliased one", "The one without an alias (the default)", "Terraform picks randomly", "It's an error"]
+answer = 1
+obj = "2c"
+explain = "Resources use the **default** (un-aliased) provider configuration unless you set `provider = aws.west`."
+
+[[stages.questions]]
+type = "single"
+q = "How do you pass an aliased provider into a child module?"
+options = [
+  "`provider = aws.west` inside the module block",
+  "`providers = { aws = aws.west }` inside the module block",
+  "Modules always inherit every alias automatically",
+  "Set `TF_PROVIDER_ALIAS`",
+]
+answer = 1
+obj = "2c"
+explain = "The `providers` map in a `module` block maps the child's provider names to the parent's configurations."
+
+[[stages.questions]]
+type = "multi"
+q = "Which statements are true about using multiple providers? (choose 2)"
+options = [
+  "Different providers can be used in the same configuration",
+  "Each provider needs its own state file",
+  "Resources from different providers can reference each other",
+  "You can only use one provider per `terraform apply`",
+]
+answer = [0, 2]
+obj = "2c"
+explain = "All providers share one configuration, one graph and one state."
+
+[[stages]]
+id = "lab2"
+title = "Lab: Two providers, one plan"
+lesson = '''
+Combine the **random** and **local** providers: generate a random name with one, then write it to a file with the other. Terraform works out the order on its own because one resource references the other.
+'''
+[stages.lab]
+goal = '''
+1. Add a `random_pet` resource named **`mascot`** (`length = 2`).
+2. Add a `local_file` named **`badge`** that writes **`badge.txt`** with the content `Welcome, <pet name>!`, using `random_pet.mascot.id` inside the string.
+3. Add an `output` called **`mascot`** with the pet's name.
+4. `init`, `apply`, and look at the output Terraform prints.
+'''
+hints = [
+  "String interpolation: `content = \"Welcome, ${random_pet.mascot.id}!\"`",
+  "Output block: `output \"mascot\" { value = random_pet.mascot.id }`",
+]
+solution = '''
+```hcl
+resource "random_pet" "mascot" {
+  length = 2
+}
+
+resource "local_file" "badge" {
+  filename = "badge.txt"
+  content  = "Welcome, ${random_pet.mascot.id}!"
+}
+
+output "mascot" {
+  value = random_pet.mascot.id
+}
+```
+'''
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+'''
+"main.tf" = '''
+# Your resources go here
+'''
+[[stages.lab.checks]]
+type = "resource"
+address = "random_pet.mascot"
+msg = "`random_pet.mascot` exists in state"
+[[stages.lab.checks]]
+type = "attr"
+address = "local_file.badge"
+attr = "content"
+regex = '^Welcome, [a-z]+-[a-z]+!$'
+msg = "`badge.txt` content looks like `Welcome, happy-otter!`"
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'random_pet\.mascot\.id'
+msg = "The file references `random_pet.mascot.id` (no hard-coding!)"
+[[stages.lab.checks]]
+type = "output"
+name = "mascot"
+regex = '"[a-z]+-[a-z]+"'
+msg = "Output `mascot` holds the pet name"
+
+[[stages]]
+id = "s4"
+title = "Terraform state"
+lesson = '''
+**State** is Terraform's database of the real objects it manages. By default it's a JSON file named **`terraform.tfstate`** in your working directory.
+
+### Why state exists
+- **Mapping:** links `aws_instance.web` in your config to the real instance ID `i-0abc123…`
+- **Metadata:** tracks dependencies so Terraform knows how to destroy things in the right order, even after you remove them from config
+- **Performance:** caches attribute values, which helps on large infrastructures
+- **Syncing:** shared (remote) state lets a team work on the same infrastructure
+
+### How state is used during a run
+1. **Refresh:** read the current real-world values of everything in state
+2. **Diff:** compare desired (config) against current (refreshed state)
+3. **Plan/apply:** make the changes, then **write the new state**
+
+### Rules of thumb
+- **Don't edit state by hand.** Use `terraform state …` commands (covered later).
+- State can contain **secrets in plain text** (passwords, keys). Protect it; for teams use a remote backend with encryption and access control.
+- `terraform.tfstate.backup` holds the previous version (local backend).
+- For teams: **remote state** (S3, Azure Blob, GCS, HCP Terraform…) with **locking**.
+
+> 📝 Marking a variable `sensitive = true` hides it in CLI output, but it is **still stored in state**.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "What is the default name of Terraform's local state file?"
+options = ["`state.json`", "`terraform.tfstate`", "`.terraform/state`", "`terraform.state.hcl`"]
+answer = 1
+obj = "2d"
+explain = "The local backend writes `terraform.tfstate` (and keeps `terraform.tfstate.backup`)."
+
+[[stages.questions]]
+type = "multi"
+q = "Why does Terraform need state? (choose 3)"
+options = [
+  "To map configuration resources to real-world objects",
+  "To track metadata such as dependencies",
+  "To improve performance by caching attribute values",
+  "To store your provider plugin binaries",
+  "To replace version control",
+]
+answer = [0, 1, 2]
+obj = "2d"
+explain = "Mapping, metadata and performance (plus team syncing with remote state)."
+
+[[stages.questions]]
+type = "single"
+q = "A variable is marked `sensitive = true`. Is its value stored in the state file?"
+options = [
+  "No, sensitive values are never written to state",
+  "Yes, state can still contain it in plain text, so state must be protected",
+  "Only if you use `-show-sensitive`",
+  "Only in remote state",
+]
+answer = 1
+obj = "2d"
+explain = "`sensitive` only redacts CLI/UI output. Protect state with encrypted, access-controlled storage."
+
+[[stages.questions]]
+type = "single"
+q = "What is the recommended way to change Terraform state?"
+options = [
+  "Edit `terraform.tfstate` in a text editor",
+  "Use `terraform state` subcommands, `import`/`moved`/`removed` blocks, or normal plan/apply",
+  "Delete the state file and re-apply",
+  "Email HashiCorp support",
+]
+answer = 1
+obj = "2d"
+explain = "Hand-editing JSON is risky. Use the CLI and configuration-driven refactoring blocks."
+
+[[stages.questions]]
+type = "order"
+q = "Order what Terraform does during `terraform apply` (default settings):"
+items = [
+  "Refresh: read the real-world state of managed resources",
+  "Compare refreshed state with the configuration",
+  "Show the plan and wait for approval",
+  "Make the API calls to create/update/delete",
+  "Write the updated state",
+]
+obj = "2d"
+explain = "Refresh → diff → plan/approve → apply → save state."
+
+[[stages.questions]]
+type = "single"
+q = "Why is remote state recommended for teams?"
+options = [
+  "It makes plans faster by skipping refresh",
+  "Everyone shares one up-to-date state, with locking and access control",
+  "It removes the need for providers",
+  "Remote state is not stored as JSON",
+]
+answer = 1
+obj = "2d"
+explain = "A shared, locked, secured state avoids conflicting changes and lost updates."
+
+[[stages]]
+id = "boss"
+title = "Boss: The Plugin Hydra"
+boss = true
+lesson = "Every head of the Hydra asks about providers, versions or state. 80% to pass."
+
+[[stages.questions]]
+type = "single"
+q = "Your config says `version = \">= 2.0, < 2.5\"`. The lock file pins 2.3.1, and 2.4.0 has been released. What does a plain `terraform init` select?"
+options = ["2.4.0", "2.3.1", "The latest 2.x", "It fails with a conflict"]
+answer = 1
+obj = "2a"
+explain = "The lock file wins until you run `terraform init -upgrade`."
+
+[[stages.questions]]
+type = "single"
+q = "Which constraint allows 1.4.0 through 1.4.x but blocks 1.5.0?"
+options = ['`"~> 1.4"`', '`"~> 1.4.0"`', '`">= 1.4"`', '`"= 1.4"`']
+answer = 1
+obj = "2a"
+explain = "`~> 1.4.0` = `>= 1.4.0, < 1.5.0`."
+
+[[stages.questions]]
+type = "single"
+q = "Which block declares that a configuration needs the `hashicorp/azurerm` provider?"
+options = ["`provider \"azurerm\" { source = ... }`", "`required_providers` inside the `terraform` block", "`module \"azurerm\"`", "`data \"provider\" \"azurerm\"`"]
+answer = 1
+obj = "2a"
+explain = "Source and version go in `terraform { required_providers { ... } }`. The `provider` block holds settings like region."
+
+[[stages.questions]]
+type = "fill"
+q = "Resource `aws_instance.us_web` must use `provider \"aws\" { alias = \"virginia\" ... }`. What value goes in its `provider` argument?"
+answer = ["aws.virginia"]
+obj = "2c"
+explain = "`provider = aws.virginia`"
+
+[[stages.questions]]
+type = "single"
+q = "What happens if you lose your local `terraform.tfstate` file (and have no backup)?"
+options = [
+  "Nothing; Terraform rebuilds it from the provider",
+  "Terraform no longer knows it manages those resources and would try to create them again",
+  "Terraform destroys everything automatically",
+  "The configuration becomes invalid",
+]
+answer = 1
+obj = "2d"
+explain = "Without state Terraform has no mapping to real objects. You'd need to `import` them back. This is why remote state with versioning matters."
+
+[[stages.questions]]
+type = "single"
+q = "Which provider tier is built and maintained by third-party technology companies that are verified by HashiCorp?"
+options = ["Official", "Partner", "Community", "Archived"]
+answer = 1
+obj = "2b"
+explain = "Partner providers are maintained by the company that owns the technology, for example Datadog or MongoDB."
+
+[[stages.questions]]
+type = "multi"
+q = "Which files or folders appear after `terraform init` in a new project? (choose 2)"
+options = ["`.terraform/`", "`.terraform.lock.hcl`", "`terraform.tfstate`", "`terraform.tfvars`"]
+answer = [0, 1]
+obj = "2a"
+explain = "`init` creates `.terraform/` and the lock file. State appears after the first apply; tfvars files are written by you."
+
+[[stages.questions]]
+type = "single"
+q = "Terraform needs state to map config to real resources. Which of these is ALSO true?"
+options = [
+  "State is optional if you use tags",
+  "State is used to determine resource dependencies for correct destroy ordering",
+  "State is only needed for HCP Terraform",
+  "State stores your `.tf` source code",
+]
+answer = 1
+obj = "2d"
+explain = "State records dependency metadata, so Terraform can destroy resources in the right order even after their config is gone."
+
+[[stages.questions]]
+type = "single"
+q = "Where does `terraform init` place provider plugins for the project?"
+options = ["`~/.terraform.d/plugins` always", "`.terraform/providers` in the working directory", "`/opt/terraform/providers`", "Inside `.terraform.lock.hcl`"]
+answer = 1
+obj = "2a"
+explain = "Into `.terraform/providers/…` (optionally linked from a plugin cache set with `TF_PLUGIN_CACHE_DIR`)."

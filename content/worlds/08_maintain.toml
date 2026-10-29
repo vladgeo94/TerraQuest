@@ -1,0 +1,574 @@
+id = "w8"
+order = 8
+title = "Maintenance Ops"
+subtitle = "Import existing infrastructure, inspect and refactor state, and debug with verbose logs."
+objective = "Objective 7 · Maintain infrastructure with Terraform"
+objective_code = "7"
+icon = "🔧"
+
+[[stages]]
+id = "s1"
+title = "Importing existing infrastructure"
+lesson = '''
+Resources created outside Terraform (by hand, by scripts, by another tool) can be brought under Terraform management with **import**.
+
+### The modern way: `import` blocks (Terraform 1.5+)
+```hcl
+import {
+  to = aws_s3_bucket.logs          # address in your config
+  id = "acme-prod-logs"            # the provider-specific ID of the real object
+}
+
+resource "aws_s3_bucket" "logs" {
+  bucket = "acme-prod-logs"
+}
+```
+- Imports happen during a normal **plan/apply**, so they're **reviewable** in the plan (`1 to import`)
+- Can be committed, code-reviewed and run in CI/HCP Terraform
+- Supports `for_each` for bulk imports (1.7+)
+- After the import is applied, you can delete the `import` block, or leave it (it does nothing more)
+
+### Generating the configuration
+Don't want to write the resource block by hand?
+```bash
+terraform plan -generate-config-out=generated.tf
+```
+Terraform writes resource blocks for every `import` block that lacks one. Always review and clean up the result.
+
+### The classic way: `terraform import` CLI
+```bash
+terraform import aws_s3_bucket.logs acme-prod-logs
+```
+- You must **write the resource block first**
+- Changes state **immediately**, with no plan to review
+- One resource at a time
+
+### After any import
+Run `terraform plan`. Ideally it shows **no changes**. If it shows changes, adjust your configuration to match the real object (unless you want to change it).
+
+> 📝 The **ID format** depends on the resource type: an instance ID, a bucket name, an ARN… Check the provider docs' "Import" section.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "What is an advantage of `import` blocks over the `terraform import` command?"
+options = [
+  "They don't need a provider",
+  "Imports are part of the plan, so they can be reviewed, versioned and run in CI before state changes",
+  "They don't require an ID",
+  "They delete the original resource",
+]
+answer = 1
+obj = "7a"
+explain = "Config-driven import is plannable and reviewable. The CLI command changes state immediately."
+
+[[stages.questions]]
+type = "fill"
+q = "Which `terraform plan` flag writes resource blocks for imported resources that have no configuration yet? (just the flag name)"
+answer = ["-generate-config-out", "--generate-config-out"]
+obj = "7a"
+explain = "`terraform plan -generate-config-out=generated.tf`"
+
+[[stages.questions]]
+type = "multi"
+q = "Which two arguments does an `import` block require? (choose 2)"
+options = ["`to`", "`id`", "`from`", "`provider_id`", "`source`"]
+answer = [0, 1]
+obj = "7a"
+explain = "`to` = the target address, `id` = the real object's ID. (`provider` is optional.)"
+
+[[stages.questions]]
+type = "single"
+q = "Before running `terraform import aws_instance.web i-0abc123` (the CLI command), what must exist?"
+options = [
+  "Nothing",
+  "A `resource \"aws_instance\" \"web\"` block in the configuration",
+  "An `import` block",
+  "A saved plan",
+]
+answer = 1
+obj = "7a"
+explain = "The CLI command needs the target resource block to exist already."
+
+[[stages.questions]]
+type = "single"
+q = "After importing a resource, what should `terraform plan` ideally show?"
+options = ["Only additions", "No changes, meaning your configuration matches the real object", "A replacement", "An error"]
+answer = 1
+obj = "7a"
+explain = "If the plan shows diffs, update the config to match reality (unless the change is intended)."
+
+[[stages.questions]]
+type = "single"
+q = "Where do you find the ID format needed to import a specific resource type?"
+options = ["In `.terraform.lock.hcl`", "In the provider's documentation for that resource (Import section)", "It's always the resource name", "In the state file"]
+answer = 1
+obj = "7a"
+explain = "Each resource documents its import ID format."
+
+[[stages]]
+id = "lab1"
+title = "Lab: Adopt a hand-made resource"
+lesson = '''
+Months ago someone generated an API key **by hand** (outside Terraform) and it's in production: `k7Qm2xLp9vRt`. We want Terraform to manage it as `random_string.api_key` **without generating a new value**.
+
+> `random_string` supports import: its import ID is the string value itself.
+'''
+[stages.lab]
+goal = '''
+1. In `main.tf`, add an **`import` block** that imports ID `k7Qm2xLp9vRt` into `random_string.api_key`.
+   The resource block is already there (`length = 12`).
+2. Run `terraform plan` and look for **`1 to import, 0 to add`**.
+3. `terraform apply`, then `terraform plan` again. It should be clean.
+'''
+suggested = ["terraform init", "terraform plan", "terraform apply", "terraform state show random_string.api_key"]
+hints = ["`import { to = random_string.api_key  id = \"k7Qm2xLp9vRt\" }` (two lines inside the block)"]
+solution = '''
+```hcl
+import {
+  to = random_string.api_key
+  id = "k7Qm2xLp9vRt"
+}
+```
+'''
+[stages.lab.files]
+"main.tf" = '''
+terraform {
+  required_providers {
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+  }
+}
+
+# TODO: import block goes here
+
+resource "random_string" "api_key" {
+  length = 12
+}
+'''
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'import\s*\{[^}]*to\s*=\s*random_string\.api_key'
+msg = "An `import` block targets `random_string.api_key`"
+[[stages.lab.checks]]
+type = "attr"
+address = "random_string.api_key"
+attr = "result"
+equals = "k7Qm2xLp9vRt"
+msg = "State holds the existing value `k7Qm2xLp9vRt` (imported, not generated)"
+[[stages.lab.checks]]
+type = "no_changes"
+msg = "Plan is clean after the import"
+
+[[stages]]
+id = "s2"
+title = "Inspecting & refactoring state with the CLI"
+lesson = '''
+### Inspecting
+| Command | What it does |
+|---|---|
+| `terraform state list` | List all resource addresses in state (filter: `terraform state list module.vpc`) |
+| `terraform state show ADDR` | Show all attributes of one resource |
+| `terraform show` | Human-readable view of the entire state (or of a saved plan file: `terraform show tfplan`) |
+| `terraform show -json` | Machine-readable state/plan |
+| `terraform output` | Show outputs |
+| `terraform state pull` | Print the raw state JSON (from any backend) to stdout |
+| `terraform providers` | Show providers required by config and state |
+
+### Modifying (careful!)
+| Command | Config-driven equivalent | Purpose |
+|---|---|---|
+| `terraform state mv A B` | `moved { from = A  to = B }` | Rename or move a resource **without destroying it** |
+| `terraform state rm ADDR` | `removed { from = ADDR  lifecycle { destroy = false } }` | **Forget** a resource without destroying the real object |
+| `terraform import` | `import {}` block | Adopt an existing object |
+| `terraform state push` | none | Overwrite remote state with a local file (dangerous) |
+| `terraform state replace-provider` | none | Change the provider source in state |
+
+### Prefer configuration blocks for refactoring
+- **`moved` blocks** (1.1+): refactors are visible in code review and apply safely for everyone using the module
+- **`removed` blocks** (1.7+): reviewable "stop managing this"
+
+```hcl
+moved {
+  from = aws_instance.web
+  to   = aws_instance.app
+}
+
+removed {
+  from = aws_instance.legacy
+  lifecycle {
+    destroy = false    # just forget it, leave the real server running
+  }
+}
+```
+
+> 📝 Just renaming a resource in config without `moved`/`state mv` makes Terraform **destroy the old one and create a new one**.
+'''
+
+[[stages.questions]]
+type = "fill"
+q = "Which command lists every resource address tracked in state?"
+answer = ["terraform state list"]
+obj = "7b"
+explain = "`terraform state list`"
+
+[[stages.questions]]
+type = "fill"
+q = "Which command shows all attributes of `aws_instance.web` from state?"
+answer = ["terraform state show aws_instance.web", "terraform state show 'aws_instance.web'"]
+obj = "7b"
+explain = "`terraform state show <address>`"
+
+[[stages.questions]]
+type = "single"
+q = "You rename `aws_instance.web` to `aws_instance.app` in config and add nothing else. What does the plan show?"
+options = ["No changes", "Destroy `web`, create `app`", "An in-place rename", "An error"]
+answer = 1
+obj = "7b"
+explain = "Terraform sees one address disappear and a new one appear. Use a `moved` block to rename safely."
+
+[[stages.questions]]
+type = "single"
+q = "You want Terraform to stop managing a database **without deleting it**. Which options work? (best answer)"
+options = [
+  "Delete the resource block and apply",
+  "`terraform state rm ADDR`, or a `removed` block with `lifecycle { destroy = false }`",
+  "`terraform destroy -target=ADDR`",
+  "`terraform taint ADDR`",
+]
+answer = 1
+obj = "7b"
+explain = "Deleting the block alone would destroy the database. `state rm` or `removed` makes Terraform forget it."
+
+[[stages.questions]]
+type = "single"
+q = "Which command prints the raw state JSON, even from a remote backend?"
+options = ["`terraform show`", "`terraform state pull`", "`terraform output -json`", "`terraform state list -json`"]
+answer = 1
+obj = "7b"
+explain = "`terraform state pull` downloads and prints the current state."
+
+[[stages.questions]]
+type = "single"
+q = "Why are `moved` blocks often preferred over `terraform state mv`?"
+options = [
+  "They're faster",
+  "The refactor is recorded in code, reviewed, and applied automatically for every state that uses the module",
+  "`state mv` is deprecated",
+  "`moved` blocks also rename the real resource",
+]
+answer = 1
+obj = "7b"
+explain = "Config-driven refactoring is reviewable and works for all consumers of a shared module."
+
+[[stages.questions]]
+type = "single"
+q = "What does `terraform show tfplan` do?"
+options = ["Applies the plan", "Displays the contents of a saved plan file in human-readable form", "Deletes the plan", "Validates the plan"]
+answer = 1
+obj = "7b"
+explain = "`terraform show` can display state or a saved plan."
+
+[[stages]]
+id = "lab2"
+title = "Lab: Refactor without destruction"
+lesson = '''
+The setup already applied two resources. Your team wants to clean up names and stop managing an old file, **without destroying anything real**.
+'''
+[stages.lab]
+goal = '''
+1. Run `terraform state list` and `terraform state show random_pet.srv`.
+2. Rename `random_pet.srv` → **`random_pet.server`** in `main.tf`, and add a **`moved` block** so the pet is *not* replaced. Check `terraform plan`: it should say `has moved to`.
+3. Stop managing `local_file.legacy` but **keep `legacy.txt` on disk**: delete its resource block and add a **`removed` block** with `lifecycle { destroy = false }`. (Or use `terraform state rm`.)
+4. `terraform apply`. Then `terraform plan` should be clean, and `legacy.txt` should still exist.
+'''
+suggested = ["terraform state list", "terraform state show random_pet.srv", "terraform plan", "terraform apply"]
+setup = ["terraform init", "terraform apply"]
+hints = [
+  "`moved { from = random_pet.srv  to = random_pet.server }` (two lines inside)",
+  "`removed { from = local_file.legacy  lifecycle { destroy = false } }`",
+]
+solution = '''
+```hcl
+resource "random_pet" "server" {
+  length = 2
+}
+
+moved {
+  from = random_pet.srv
+  to   = random_pet.server
+}
+
+removed {
+  from = local_file.legacy
+  lifecycle {
+    destroy = false
+  }
+}
+```
+'''
+[stages.lab.files]
+"main.tf" = '''
+terraform {
+  required_providers {
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+
+resource "random_pet" "srv" {
+  length = 2
+}
+
+resource "local_file" "legacy" {
+  filename = "legacy.txt"
+  content  = "Old config. Another team owns this now.\n"
+}
+'''
+[[stages.lab.checks]]
+type = "resource"
+address = "random_pet.server"
+msg = "`random_pet.server` is in state"
+[[stages.lab.checks]]
+type = "no_resource"
+address = "random_pet.srv"
+msg = "`random_pet.srv` is gone from state"
+[[stages.lab.checks]]
+type = "snapshot_same"
+was = "random_pet.srv"
+address = "random_pet.server"
+attr = "id"
+msg = "Same pet name as before: moved, not replaced"
+[[stages.lab.checks]]
+type = "no_resource"
+address = "local_file.legacy"
+msg = "`local_file.legacy` is no longer managed"
+[[stages.lab.checks]]
+type = "file_exists"
+path = "legacy.txt"
+msg = "`legacy.txt` still exists on disk"
+[[stages.lab.checks]]
+type = "no_changes"
+msg = "Plan is clean"
+
+[[stages]]
+id = "s3"
+title = "Verbose logging & debugging"
+lesson = '''
+When something goes wrong (a provider error, a strange plan, a hang), turn on **detailed logs**.
+
+### Environment variables
+| Variable | Purpose |
+|---|---|
+| `TF_LOG` | Log level: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, or `JSON` (= TRACE in JSON format). Unset or `OFF` disables it |
+| `TF_LOG_PATH` | Write logs to this file instead of stderr. **Only works if `TF_LOG` is also set** |
+| `TF_LOG_CORE` | Level for Terraform core only |
+| `TF_LOG_PROVIDER` | Level for providers only |
+
+```bash
+TF_LOG=DEBUG TF_LOG_PATH=./terraform.log terraform plan
+```
+
+- **TRACE** is the most verbose and the most useful when reporting bugs
+- Logs can contain **sensitive data** (requests, tokens), so handle them carefully
+- If Terraform itself **crashes** (panics), it writes `crash.log`. Include it in bug reports to HashiCorp
+- For provider bugs, report to the **provider's** repository with TRACE logs
+
+### Other debugging aids
+- `terraform validate`: config errors
+- `terraform console`: test expressions
+- `terraform plan` with `-refresh=false` to isolate refresh problems
+- `terraform graph`: visualise dependencies
+'''
+
+[[stages.questions]]
+type = "single"
+q = "Which `TF_LOG` level is the most verbose?"
+options = ["DEBUG", "INFO", "TRACE", "VERBOSE"]
+answer = 2
+obj = "7c"
+explain = "TRACE > DEBUG > INFO > WARN > ERROR."
+
+[[stages.questions]]
+type = "single"
+q = "You set `TF_LOG_PATH=/tmp/tf.log` but no log file appears. Why?"
+options = [
+  "The path must be relative",
+  "`TF_LOG` must also be set to a log level",
+  "Logs only work with HCP Terraform",
+  "You need `-log` on the command",
+]
+answer = 1
+obj = "7c"
+explain = "`TF_LOG_PATH` only takes effect when `TF_LOG` is enabled."
+
+[[stages.questions]]
+type = "fill"
+q = "Which environment variable enables detailed logs only for **provider plugins**?"
+answer = ["TF_LOG_PROVIDER"]
+case_sensitive = true
+obj = "7c"
+explain = "`TF_LOG_PROVIDER` (and `TF_LOG_CORE` for core)."
+
+[[stages.questions]]
+type = "single"
+q = "If Terraform itself panics (crashes), what file does it write?"
+options = ["`panic.txt`", "`crash.log`", "`terraform.log`", "`error.tfstate`"]
+answer = 1
+obj = "7c"
+explain = "`crash.log` contains the panic details for bug reports."
+
+[[stages.questions]]
+type = "single"
+q = "Which value of `TF_LOG` produces logs in JSON format?"
+options = ["`TF_LOG=JSON`", "`TF_LOG=TRACE-JSON`", "`TF_LOG_FORMAT=json`", "`TF_JSON=1`"]
+answer = 0
+obj = "7c"
+explain = "`TF_LOG=JSON` outputs TRACE-level logs as JSON."
+
+[[stages.questions]]
+type = "single"
+q = "Why must you be careful when sharing TRACE logs?"
+options = ["They're huge, but harmless", "They may contain sensitive values such as tokens or request bodies", "They break the state", "HashiCorp forbids sharing them"]
+answer = 1
+obj = "7c"
+explain = "Review and redact logs before sharing them."
+
+[[stages]]
+id = "lab3"
+title = "Lab: Turn on the lights (TF_LOG)"
+lesson = '''
+A plan is behaving strangely and you need logs for a bug report. Labs accept `TF_LOG…` environment variables in front of the command, just like a real shell.
+'''
+[stages.lab]
+goal = '''
+1. Run a plan with **DEBUG** logging written to **`terraform.log`**:
+   `TF_LOG=DEBUG TF_LOG_PATH=terraform.log terraform plan`
+2. Open the `terraform.log` tab and skim it: provider start-up, schema loading, the graph walk…
+3. Then run a plan with **only provider** logs at TRACE written to **`provider.log`**.
+4. **Check my work.**
+'''
+suggested = ["terraform init", "TF_LOG=DEBUG TF_LOG_PATH=terraform.log terraform plan"]
+hints = ["Step 3: `TF_LOG_PROVIDER=TRACE TF_LOG_PATH=provider.log terraform plan`"]
+[stages.lab.files]
+"main.tf" = '''
+terraform {
+  required_providers {
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+  }
+}
+
+resource "random_id" "build" {
+  byte_length = 4
+}
+'''
+[[stages.lab.checks]]
+type = "file_regex"
+path = "terraform.log"
+pattern = '\[DEBUG\]'
+msg = "`terraform.log` contains DEBUG entries"
+[[stages.lab.checks]]
+type = "file_exists"
+path = "provider.log"
+msg = "`provider.log` exists"
+[[stages.lab.checks]]
+type = "file_regex"
+path = "provider.log"
+pattern = '\[TRACE\].*provider|provider.*\[TRACE\]'
+msg = "`provider.log` contains provider TRACE entries"
+
+[[stages]]
+id = "boss"
+title = "Boss: The Legacy Lich"
+boss = true
+lesson = "The Lich rules over hand-made, forgotten infrastructure. Import it, refactor it, debug it. 80% to pass."
+
+[[stages.questions]]
+type = "order"
+q = "Order the steps to import an existing S3 bucket using config-driven import:"
+items = [
+  "Add an `import` block with `to` and `id`",
+  "Run `terraform plan -generate-config-out=generated.tf` (or write the resource block)",
+  "Review and clean up the resource configuration",
+  "`terraform apply`",
+  "`terraform plan` shows no changes",
+]
+obj = "7a"
+explain = "Import block → generate or write config → review → apply → verify a clean plan."
+
+[[stages.questions]]
+type = "single"
+q = "A module was refactored and `aws_s3_bucket.this` moved to `module.storage.aws_s3_bucket.this`. How do you avoid re-creating the bucket?"
+options = [
+  "`terraform apply -replace`",
+  "Add `moved { from = aws_s3_bucket.this  to = module.storage.aws_s3_bucket.this }`",
+  "`terraform import` again",
+  "`ignore_changes = all`",
+]
+answer = 1
+obj = "7b"
+explain = "`moved` works across module boundaries too."
+
+[[stages.questions]]
+type = "single"
+q = "Which command displays the human-readable contents of the whole current state?"
+options = ["`terraform show`", "`terraform state list`", "`terraform output`", "`terraform validate`"]
+answer = 0
+obj = "7b"
+explain = "`terraform show` (`state list` only lists addresses)."
+
+[[stages.questions]]
+type = "single"
+q = "You need to send HashiCorp support the most detailed logs of a failing `terraform apply`. What do you set?"
+options = ["`TF_LOG=ERROR`", "`TF_LOG=TRACE` (and `TF_LOG_PATH` to save it to a file)", "`TF_DEBUG=1`", "`-verbose`"]
+answer = 1
+obj = "7c"
+explain = "TRACE is the most detailed level."
+
+[[stages.questions]]
+type = "single"
+q = "What does `terraform state rm aws_instance.old` do to the real EC2 instance?"
+options = ["Terminates it", "Nothing; Terraform just forgets about it", "Stops it", "Tags it as unmanaged"]
+answer = 1
+obj = "7b"
+explain = "`state rm` only removes the state entry."
+
+[[stages.questions]]
+type = "multi"
+q = "Which are true about the `terraform import` **CLI command**? (choose 2)"
+options = [
+  "It requires the resource block to already exist in configuration",
+  "It modifies state immediately, without a reviewable plan",
+  "It can generate configuration automatically",
+  "It imports every resource in the cloud account",
+]
+answer = [0, 1]
+obj = "7a"
+explain = "Config generation is a `plan -generate-config-out` feature that works with import blocks."
+
+[[stages.questions]]
+type = "single"
+q = "A `removed` block has `lifecycle { destroy = false }`. What happens on apply?"
+options = ["The resource is destroyed", "The resource is removed from state, and the real object is left intact", "Nothing", "It errors"]
+answer = 1
+obj = "7b"
+explain = "`destroy = false` means forget, not delete."
+
+[[stages.questions]]
+type = "single"
+q = "Which environment variable sends Terraform's logs to a file?"
+options = ["`TF_LOG_FILE`", "`TF_LOG_PATH`", "`TF_OUTPUT`", "`TF_LOGFILE`"]
+answer = 1
+obj = "7c"
+explain = "`TF_LOG_PATH`, together with `TF_LOG`."

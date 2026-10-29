@@ -1,0 +1,910 @@
+id = "w5"
+order = 5
+title = "Configuration II"
+subtitle = "Expressions and functions, count and for_each, dependencies, custom conditions and secrets."
+objective = "Objective 4e–4h · Terraform configuration"
+objective_code = "4"
+icon = "🧪"
+
+[[stages]]
+id = "s1"
+title = "Expressions & functions"
+lesson = '''
+### Conditional expression
+```hcl
+instance_type = var.environment == "prod" ? "m5.large" : "t3.micro"
+```
+
+### `for` expressions: transform collections
+```hcl
+upper_names = [for n in var.names : upper(n)]                 # → list
+name_map    = { for n in var.names : n => length(n) }         # → map
+prod_only   = [for s in var.servers : s.name if s.env == "prod"]  # filter
+```
+Use `[ ]` to produce a list/tuple and `{ }` to produce a map/object.
+
+### Splat expressions
+```hcl
+aws_instance.web[*].id        # list of all ids (with count)
+var.users[*].name             # pluck an attribute from a list of objects
+```
+
+### String templates
+```hcl
+"Hello, ${var.name}!"
+"%{ if var.admin }admin%{ else }user%{ endif }"
+```
+Multi-line strings use heredocs: `<<EOT ... EOT` (or `<<-EOT` to strip indentation).
+
+### Built-in functions (you **can't** define your own; providers can add some)
+| Category | Examples |
+|---|---|
+| String | `upper`, `lower`, `format`, `join`, `split`, `replace`, `trimspace`, `substr` |
+| Collection | `length`, `merge`, `concat`, `flatten`, `keys`, `values`, `lookup`, `contains`, `element`, `zipmap`, `distinct`, `toset` |
+| Numeric | `min`, `max`, `ceil`, `floor` |
+| Encoding | `jsonencode`, `jsondecode`, `yamlencode`, `base64encode` |
+| Filesystem | `file`, `templatefile`, `fileexists` |
+| Network | `cidrsubnet`, `cidrhost` |
+| Type / errors | `try`, `can`, `tostring`, `tonumber`, `coalesce` |
+
+Try them interactively with **`terraform console`**: `> upper("hi")` → `"HI"`.
+
+> 📝 `lookup(map, key, default)` returns `default` if the key is missing. `merge()` combines maps, and later arguments win on duplicate keys.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "What does `[for s in [\"a\", \"b\"] : upper(s)]` return?"
+options = ['`["a", "b"]`', '`["A", "B"]`', '`{ a = "A", b = "B" }`', '`"AB"`']
+answer = 1
+obj = "4e"
+explain = "Square brackets produce a list: each element transformed by `upper`."
+
+[[stages.questions]]
+type = "single"
+q = "What does `{ for k, v in { a = 1, b = 2 } : k => v * 10 }` return?"
+options = ['`[10, 20]`', '`{ a = 10, b = 20 }`', '`{ 10 = a, 20 = b }`', 'An error']
+answer = 1
+obj = "4e"
+explain = "Curly braces with `key => value` produce a map."
+
+[[stages.questions]]
+type = "fill"
+q = "Which command opens an interactive prompt to evaluate expressions and functions?"
+answer = ["terraform console"]
+obj = "4e"
+explain = "`terraform console` evaluates expressions against your config and state."
+
+[[stages.questions]]
+type = "single"
+q = "Can you write your own custom functions in Terraform's language?"
+options = [
+  "Yes, with the `function` block",
+  "No; you use built-in functions, and providers can supply provider-defined functions",
+  "Yes, in `locals`",
+  "Only in HCP Terraform",
+]
+answer = 1
+obj = "4e"
+explain = "There's no user-defined function block. Providers (1.8+) can ship functions such as `provider::aws::arn_parse()`."
+
+[[stages.questions]]
+type = "single"
+q = "What does `lookup({ a = \"x\" }, \"b\", \"none\")` return?"
+options = ['`"x"`', '`"none"`', '`null`', 'An error']
+answer = 1
+obj = "4e"
+explain = "Key `b` is missing, so `lookup` returns the default `\"none\"`."
+
+[[stages.questions]]
+type = "single"
+q = "What does `merge({ a = 1, b = 2 }, { b = 3 })` return?"
+options = ['`{ a = 1, b = 2 }`', '`{ a = 1, b = 3 }`', '`{ a = 1, b = [2, 3] }`', 'An error, because of the duplicate key']
+answer = 1
+obj = "4e"
+explain = "Later maps win on duplicate keys."
+
+[[stages.questions]]
+type = "single"
+q = "`aws_instance.web` has `count = 3`. What does `aws_instance.web[*].id` return?"
+options = ["The first instance's ID", "A list of all three IDs", "A map keyed by index", "An error, since splat only works with for_each"]
+answer = 1
+obj = "4e"
+explain = "The splat `[*]` collects an attribute from every element into a list."
+
+[[stages.questions]]
+type = "single"
+q = "Which function safely returns a fallback value when an expression would error (e.g. a missing attribute)?"
+options = ["`can()`", "`try()`", "`coalesce()`", "`lookup()`"]
+answer = 1
+obj = "4e"
+explain = "`try(expr, fallback)` returns the first argument that evaluates without error. `can()` returns true/false."
+
+[[stages]]
+id = "lab1"
+title = "Lab: Function forge"
+lesson = '''
+No resources this time, just **locals** and **outputs**. Outputs are applied too, so you can build values and see them. Use `echo 'expr' | terraform console` in the terminal to experiment first, for example:
+
+```bash
+echo 'lower(trimspace(" Prod "))' | terraform console
+```
+'''
+[stages.lab]
+goal = '''
+`variables.tf` gives you `project = "TerraQuest"`, `environment = " Prod "` (messy on purpose) and `services = ["api", "web", "worker"]`.
+
+In `main.tf`, create locals and these **outputs**:
+
+| Output | Expected value | Hint |
+|---|---|---|
+| `env` | `"prod"` | clean up `var.environment` |
+| `name_prefix` | `"terraquest-prod"` | lowercase project + env |
+| `service_names` | `["terraquest-prod-api", "terraquest-prod-web", "terraquest-prod-worker"]` | use a **`for` expression** |
+| `service_csv` | `"terraquest-prod-api,terraquest-prod-web,terraquest-prod-worker"` | `join` |
+| `instance_size` | `"large"` | conditional: `"large"` when env is prod, else `"small"` |
+
+Then `terraform apply` and `terraform output`.
+'''
+suggested = ["terraform init", "echo 'upper(\"hi\")' | terraform console", "terraform apply", "terraform output"]
+hints = [
+  "`env = lower(trimspace(var.environment))`, and `name_prefix = lower(\"${var.project}-${local.env}\")`.",
+  "`service_names = [for s in var.services : \"${local.name_prefix}-${s}\"]`, `instance_size = local.env == \"prod\" ? \"large\" : \"small\"`",
+]
+solution = '''
+```hcl
+locals {
+  env           = lower(trimspace(var.environment))
+  name_prefix   = lower("${var.project}-${local.env}")
+  service_names = [for s in var.services : "${local.name_prefix}-${s}"]
+}
+
+output "env"           { value = local.env }
+output "name_prefix"   { value = local.name_prefix }
+output "service_names" { value = local.service_names }
+output "service_csv"   { value = join(",", local.service_names) }
+output "instance_size" { value = local.env == "prod" ? "large" : "small" }
+```
+(Run `terraform fmt` afterwards to expand the one-line blocks.)
+'''
+[stages.lab.files]
+"variables.tf" = '''
+variable "project" {
+  type    = string
+  default = "TerraQuest"
+}
+
+variable "environment" {
+  type    = string
+  default = " Prod "
+}
+
+variable "services" {
+  type    = list(string)
+  default = ["api", "web", "worker"]
+}
+'''
+"main.tf" = '''
+# locals { ... }
+# output "env" { ... }
+'''
+[[stages.lab.checks]]
+type = "output"
+name = "env"
+equals = "prod"
+msg = "`env` = `\"prod\"`"
+[[stages.lab.checks]]
+type = "output"
+name = "name_prefix"
+equals = "terraquest-prod"
+msg = "`name_prefix` = `\"terraquest-prod\"`"
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = '\[\s*for\s+\w+\s+in\s+'
+msg = "A `for` expression is used"
+[[stages.lab.checks]]
+type = "output"
+name = "service_names"
+equals = ["terraquest-prod-api", "terraquest-prod-web", "terraquest-prod-worker"]
+msg = "`service_names` is correct"
+[[stages.lab.checks]]
+type = "output"
+name = "service_csv"
+equals = "terraquest-prod-api,terraquest-prod-web,terraquest-prod-worker"
+msg = "`service_csv` is correct"
+[[stages.lab.checks]]
+type = "output"
+name = "instance_size"
+equals = "large"
+msg = "`instance_size` = `\"large\"`"
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = '\?\s*"large"\s*:\s*"small"|\?\s*"small"\s*:\s*"large"'
+msg = "`instance_size` uses a conditional expression"
+
+[[stages]]
+id = "s2"
+title = "count, for_each & dynamic blocks"
+lesson = '''
+### `count`: N copies
+```hcl
+resource "aws_instance" "web" {
+  count = 3
+  tags  = { Name = "web-${count.index}" }    # 0, 1, 2
+}
+```
+Addresses: `aws_instance.web[0]`, `[1]`, `[2]`. Common trick: `count = var.create ? 1 : 0` for an optional resource.
+
+⚠️ Removing an item from the **middle** of a list used with count shifts indexes, so later resources get destroyed and re-created.
+
+### `for_each`: one instance per key
+```hcl
+resource "aws_iam_user" "u" {
+  for_each = toset(["alice", "bob"])   # set of strings or a map
+  name     = each.key                  # each.value is the same for sets
+}
+```
+Addresses: `aws_iam_user.u["alice"]`. Removing `"alice"` only destroys alice. That's why **for_each is preferred** when items have identities.
+
+- You **can't** use `count` and `for_each` on the same block.
+- Keys must be known at plan time (not values only known after apply).
+
+### `dynamic` blocks: repeat **nested blocks**
+```hcl
+resource "aws_security_group" "web" {
+  name = "web"
+
+  dynamic "ingress" {
+    for_each = var.ports            # e.g. [80, 443]
+    content {
+      from_port   = ingress.value   # iterator is named after the block
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+}
+```
+- The iterator variable defaults to the **block label** (`ingress`), with `.key` and `.value`; rename it with `iterator = port`.
+- Use dynamic blocks sparingly, because they make code harder to read.
+
+### `count`/`for_each` work on modules too
+`module "bucket" { source = "./bucket"  for_each = var.buckets }`
+'''
+
+[[stages.questions]]
+type = "single"
+q = "Inside a resource with `count = 3`, how do you get the current instance's index?"
+options = ["`each.key`", "`count.index`", "`self.index`", "`index()`"]
+answer = 1
+obj = "4e"
+explain = "`count.index` goes from 0 to count-1."
+
+[[stages.questions]]
+type = "single"
+q = "Why is `for_each` often preferred over `count` for a list of named things?"
+options = [
+  "It's faster",
+  "Instances are tracked by key, so removing one item doesn't shift and re-create the others",
+  "count is deprecated",
+  "for_each supports more providers",
+]
+answer = 1
+obj = "4e"
+explain = "With count, removing a middle element shifts the indexes, so later resources get replaced."
+
+[[stages.questions]]
+type = "single"
+q = "What is the idiomatic way to create a resource only when `var.enabled` is true?"
+options = [
+  "`enabled = var.enabled` meta-argument",
+  "`count = var.enabled ? 1 : 0`",
+  "`depends_on = [var.enabled]`",
+  "Wrap it in an `if` block",
+]
+answer = 1
+obj = "4e"
+explain = "A conditional count of 1 or 0 is the classic pattern. There's no `if` block in HCL."
+
+[[stages.questions]]
+type = "single"
+q = "In a `dynamic \"setting\"` block with no `iterator` argument, how do you access the current element's value inside `content`?"
+options = ["`each.value`", "`setting.value`", "`dynamic.value`", "`item.value`"]
+answer = 1
+obj = "4e"
+explain = "The iterator is named after the dynamic block's label: `setting.key` / `setting.value`."
+
+[[stages.questions]]
+type = "single"
+q = "What are dynamic blocks used for?"
+options = [
+  "Creating multiple resources",
+  "Generating repeated **nested** blocks inside a resource, data, provider or provisioner block",
+  "Loading configuration from a URL",
+  "Choosing providers at runtime",
+]
+answer = 1
+obj = "4e"
+explain = "They repeat nested blocks such as `ingress` or `setting`. To repeat whole resources, use count/for_each."
+
+[[stages.questions]]
+type = "single"
+q = "Can a single resource block use both `count` and `for_each`?"
+options = ["Yes", "No, they are mutually exclusive", "Only for modules", "Only if count is 1"]
+answer = 1
+obj = "4e"
+explain = "Pick one per block."
+
+[[stages.questions]]
+type = "single"
+q = "In a resource with `for_each = { web = \"t3.small\", db = \"m5.large\" }`, what is `each.value` for the db instance?"
+options = ['`"db"`', '`"m5.large"`', '`1`', '`{ db = "m5.large" }`']
+answer = 1
+obj = "4e"
+explain = "`each.key` = \"db\", `each.value` = \"m5.large\"."
+
+[[stages]]
+id = "s3"
+title = "Resource dependencies & lifecycle"
+lesson = '''
+Terraform builds a **dependency graph** and creates independent resources **in parallel**.
+
+### Implicit dependencies (preferred)
+Created automatically by references: `subnet_id = aws_subnet.main.id`.
+
+### Explicit dependencies: `depends_on`
+For hidden dependencies Terraform can't see from references. Example: an app instance needs an IAM policy to be attached before it boots, but doesn't reference the attachment.
+
+```hcl
+resource "aws_instance" "app" {
+  # ...
+  depends_on = [aws_iam_role_policy.s3_access]
+}
+```
+- Takes a **list of references** (no quotes): resources, data sources or modules
+- Use it only when needed, as a last resort; it can make plans more conservative
+
+### `lifecycle` meta-argument
+```hcl
+lifecycle {
+  create_before_destroy = true      # new one first, then delete old (avoid downtime)
+  prevent_destroy       = true      # error if a plan would destroy it
+  ignore_changes        = [tags]    # don't fight changes made outside Terraform
+  replace_triggered_by  = [aws_launch_template.app.id]  # replace when that changes
+}
+```
+
+### Visualising the graph
+`terraform graph` outputs the dependency graph in DOT format (render it with Graphviz).
+
+> 📝 The order of blocks in your files doesn't matter. Only dependencies decide the order.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "When should you use `depends_on`?"
+options = [
+  "On every resource, to be safe",
+  "Only when there's a hidden dependency that Terraform can't infer from references",
+  "To control the order of blocks in a file",
+  "To make Terraform faster",
+]
+answer = 1
+obj = "4f"
+explain = "Prefer implicit dependencies. Use `depends_on` only for hidden ones."
+
+[[stages.questions]]
+type = "single"
+q = "Which is the correct `depends_on` syntax?"
+options = [
+  '`depends_on = "aws_iam_role.app"`',
+  '`depends_on = [aws_iam_role.app]`',
+  '`depends_on { aws_iam_role.app }`',
+  '`depends_on = aws_iam_role.app.id`',
+]
+answer = 1
+obj = "4f"
+explain = "A list of references, without quotes."
+
+[[stages.questions]]
+type = "single"
+q = "Does the order in which resources appear in your `.tf` files decide the creation order?"
+options = ["Yes, top to bottom", "No; the dependency graph decides, and independent resources run in parallel", "Yes, alphabetically by file", "Only within one file"]
+answer = 1
+obj = "4f"
+explain = "Order in files is irrelevant. Dependencies decide."
+
+[[stages.questions]]
+type = "single"
+q = "Which lifecycle argument creates the replacement resource before destroying the old one?"
+options = ["`prevent_destroy`", "`create_before_destroy`", "`replace_triggered_by`", "`ignore_changes`"]
+answer = 1
+obj = "4f"
+explain = "`create_before_destroy = true` reduces downtime when a resource has to be replaced."
+
+[[stages.questions]]
+type = "single"
+q = "An autoscaler changes `desired_capacity` outside Terraform, and you don't want Terraform to revert it. What do you add?"
+options = ["`prevent_destroy = true`", "`ignore_changes = [desired_capacity]`", "`depends_on = [autoscaler]`", "`-refresh=false`"]
+answer = 1
+obj = "4f"
+explain = "`ignore_changes` tells Terraform to ignore differences in those attributes after creation."
+
+[[stages.questions]]
+type = "fill"
+q = "Which command outputs the dependency graph in DOT format?"
+answer = ["terraform graph"]
+obj = "4f"
+explain = "`terraform graph | dot -Tsvg > graph.svg`"
+
+[[stages]]
+id = "s4"
+title = "Custom conditions"
+lesson = '''
+Catch mistakes early with clear error messages.
+
+### 1. Variable `validation`
+```hcl
+variable "port" {
+  type = number
+  validation {
+    condition     = var.port >= 1024 && var.port <= 65535
+    error_message = "port must be between 1024 and 65535."
+  }
+}
+```
+Runs when the value is set; fails the plan with your message. Since Terraform 1.9 the condition may reference other variables too.
+
+### 2. `precondition` and `postcondition` (in `lifecycle`)
+```hcl
+resource "aws_instance" "web" {
+  ami = data.aws_ami.app.id
+  lifecycle {
+    precondition {
+      condition     = data.aws_ami.app.architecture == "x86_64"
+      error_message = "AMI must be x86_64."
+    }
+    postcondition {
+      condition     = self.public_dns != ""
+      error_message = "Instance must get a public DNS name."
+    }
+  }
+}
+```
+- **precondition:** checked *before* the resource is planned/applied (assumptions)
+- **postcondition:** checked *after*, using `self` (guarantees)
+- Also allowed on **data sources** and **outputs** (outputs only take `precondition`)
+- Failure = **error**, which stops the run
+
+### 3. `check` blocks (Terraform 1.5+)
+```hcl
+check "website_up" {
+  data "http" "site" { url = "https://example.com" }   # optional scoped data source
+  assert {
+    condition     = data.http.site.status_code == 200
+    error_message = "Website is not returning 200."
+  }
+}
+```
+- Run at the end of plan and apply
+- Failure = **warning only**, which doesn't block the run. Good for ongoing health checks
+
+| | Fails the run? | Where |
+|---|---|---|
+| `validation` | ✅ error | variable block |
+| `precondition` / `postcondition` | ✅ error | `lifecycle` of resource/data, or output |
+| `check` / `assert` | ⚠️ warning | top-level `check` block |
+'''
+
+[[stages.questions]]
+type = "single"
+q = "A `check` block's assertion fails during `terraform apply`. What happens?"
+options = [
+  "The apply fails and rolls back",
+  "Terraform reports a warning, and the apply continues",
+  "The resource is destroyed",
+  "State is locked",
+]
+answer = 1
+obj = "4g"
+explain = "Check blocks produce **warnings**, not errors."
+
+[[stages.questions]]
+type = "single"
+q = "Which custom condition can reference `self` to check a resource's attributes after it is created?"
+options = ["`validation`", "`precondition`", "`postcondition`", "`check`"]
+answer = 2
+obj = "4g"
+explain = "Postconditions run after the change and can use `self`."
+
+[[stages.questions]]
+type = "multi"
+q = "Which two arguments are required in a `validation` block? (choose 2)"
+options = ["`condition`", "`error_message`", "`severity`", "`assert`", "`when`"]
+answer = [0, 1]
+obj = "4g"
+explain = "`condition` (a boolean expression) and `error_message`."
+
+[[stages.questions]]
+type = "single"
+q = "Where do `precondition` and `postcondition` blocks go in a resource?"
+options = ["At the top level of the resource", "Inside a `lifecycle` block", "Inside a `validation` block", "In a separate `.tfcheck` file"]
+answer = 1
+obj = "4g"
+explain = "`lifecycle { precondition { ... } postcondition { ... } }`"
+
+[[stages.questions]]
+type = "single"
+q = "You want a variable `env` to only accept `dev`, `staging` or `prod`. What do you write in its validation condition?"
+options = [
+  '`condition = var.env in ["dev", "staging", "prod"]`',
+  '`condition = contains(["dev", "staging", "prod"], var.env)`',
+  '`condition = var.env == "dev" | "staging" | "prod"`',
+  '`condition = oneof(var.env)`',
+]
+answer = 1
+obj = "4g"
+explain = "`contains(list, value)` returns true if the value is in the list."
+
+[[stages.questions]]
+type = "single"
+q = "Which custom condition is best for continuous checks of the infrastructure that should **not** block deployments?"
+options = ["variable validation", "precondition", "postcondition", "check block"]
+answer = 3
+obj = "4g"
+explain = "Check blocks warn instead of failing. HCP Terraform can also run them continuously with health assessments."
+
+[[stages]]
+id = "lab2"
+title = "Lab: Input guards"
+lesson = '''
+Users keep passing bad values. Add **validation** so mistakes fail fast with a helpful message.
+'''
+[stages.lab]
+goal = '''
+In `variables.tf`:
+
+1. `env` must be one of `dev`, `staging`, `prod`. Make the error message start with **`env must be`**.
+2. `port` must be between **1024 and 65535** (inclusive).
+
+Test it yourself:
+- `terraform plan -var env=qa` → should **fail** with your message
+- `terraform plan -var port=80` → should **fail**
+- `terraform plan -var env=prod -var port=8443` → should work
+
+Finally `terraform apply` with the defaults.
+'''
+suggested = ["terraform init", "terraform plan -var env=qa", "terraform plan -var port=80", "terraform plan -var env=prod -var port=8443", "terraform apply"]
+hints = [
+  "`validation { condition = contains([\"dev\", \"staging\", \"prod\"], var.env)  error_message = \"env must be dev, staging or prod.\" }` (on separate lines)",
+  "`condition = var.port >= 1024 && var.port <= 65535`",
+]
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+'''
+"variables.tf" = '''
+variable "env" {
+  type    = string
+  default = "dev"
+}
+
+variable "port" {
+  type    = number
+  default = 8080
+}
+'''
+"main.tf" = '''
+resource "local_file" "app_config" {
+  filename = "app.conf"
+  content  = "env=${var.env}\nport=${var.port}\n"
+}
+'''
+[[stages.lab.checks]]
+type = "command_fails"
+cmd = "terraform plan -var env=qa"
+output_regex = 'env must be'
+msg = "`-var env=qa` is rejected with a message starting `env must be`"
+[[stages.lab.checks]]
+type = "command_fails"
+cmd = "terraform plan -var port=80"
+msg = "`-var port=80` is rejected"
+[[stages.lab.checks]]
+type = "command_fails"
+cmd = "terraform plan -var port=70000"
+msg = "`-var port=70000` is rejected"
+[[stages.lab.checks]]
+type = "command_ok"
+cmd = "terraform plan -var env=prod -var port=8443"
+msg = "`env=prod`, `port=8443` is accepted"
+[[stages.lab.checks]]
+type = "command_ok"
+cmd = "terraform plan -var port=1024"
+msg = "`port=1024` (edge) is accepted"
+[[stages.lab.checks]]
+type = "resource"
+address = "local_file.app_config"
+msg = "Applied with defaults"
+
+[[stages]]
+id = "s5"
+title = "Sensitive data & Vault"
+lesson = '''
+### What `sensitive = true` does (and doesn't do)
+```hcl
+variable "db_password" {
+  type      = string
+  sensitive = true
+}
+```
+- ✅ Redacts the value as `(sensitive value)` in plan/apply output and logs
+- ✅ Values derived from it are also treated as sensitive
+- ❌ Does **not** encrypt it. It's still stored **in plain text in state** and in saved plan files
+
+### Best practices
+- **Never** commit secrets in `.tf` or `.tfvars` files to Git (add `*.tfvars` holding secrets to `.gitignore`)
+- Pass secrets via environment variables (`TF_VAR_db_password`), a secrets manager, or CI secret stores
+- Store state in a **remote backend with encryption at rest and strict access control** (S3 + KMS, HCP Terraform…)
+- Prefer **ephemeral** values when possible (Terraform 1.10+):
+  - `ephemeral = true` on variables/outputs means they're never persisted to state or plan
+  - `ephemeral` resources (e.g. reading a secret just for the run)
+  - **write-only arguments** (1.11+, like `password_wo`) are sent to the provider but never stored
+
+### HashiCorp Vault
+Vault is HashiCorp's secrets manager. With the `vault` provider, Terraform can **read secrets at run time** instead of hard-coding them:
+
+```hcl
+provider "vault" {}             # address/token from VAULT_ADDR / VAULT_TOKEN
+
+data "vault_kv_secret_v2" "db" {
+  mount = "secret"
+  name  = "prod/db"
+}
+
+resource "aws_db_instance" "main" {
+  password = data.vault_kv_secret_v2.db.data["password"]
+}
+```
+- Vault can generate **dynamic, short-lived credentials**, e.g. AWS keys that expire after the run
+- ⚠️ A secret read with a regular data source and used in a resource **still lands in state**. Ephemeral resources / write-only arguments avoid that
+- HCP Terraform supports **dynamic provider credentials** (OIDC) with Vault and the clouds, so no static keys are needed
+'''
+
+[[stages.questions]]
+type = "single"
+q = "A variable is marked `sensitive = true`. Which statement is TRUE?"
+options = [
+  "Its value is encrypted in the state file",
+  "Its value is redacted in CLI output but stored in plain text in state",
+  "It's never written to state",
+  "It can't be used in resources",
+]
+answer = 1
+obj = "4h"
+explain = "Sensitive = output redaction only. Protect the state itself."
+
+[[stages.questions]]
+type = "multi"
+q = "Which are good practices for handling secrets with Terraform? (choose 3)"
+options = [
+  "Use a remote backend with encryption and access control for state",
+  "Pass secrets via environment variables or a secrets manager like Vault",
+  "Commit `secrets.tfvars` so the team has them",
+  "Mark secret variables and outputs as `sensitive`",
+  "Put passwords in resource tags for easy lookup",
+]
+answer = [0, 1, 3]
+obj = "4h"
+explain = "Never commit secrets or put them in tags."
+
+[[stages.questions]]
+type = "single"
+q = "What does Vault's **dynamic secrets** feature provide?"
+options = [
+  "Secrets that change color in the UI",
+  "Credentials generated on demand with a short lease, then automatically revoked",
+  "Encrypted Terraform state",
+  "Automatic variable validation",
+]
+answer = 1
+obj = "4h"
+explain = "Short-lived, on-demand credentials reduce the impact of a leak."
+
+[[stages.questions]]
+type = "single"
+q = "You read a database password from Vault with a regular data source and set it on a resource argument. Where can that password end up?"
+options = [
+  "Nowhere; Vault values are never stored",
+  "In the Terraform state file",
+  "Only in Vault's audit log",
+  "In `.terraform.lock.hcl`",
+]
+answer = 1
+obj = "4h"
+explain = "Values from data sources and resource arguments are stored in state. Ephemeral resources and write-only arguments avoid this."
+
+[[stages.questions]]
+type = "single"
+q = "Which Terraform feature (1.10+) lets a value be used during a run without being stored in state or plan files?"
+options = ["`sensitive = true`", "Ephemeral values and resources", "`ignore_changes`", "`-lock=false`"]
+answer = 1
+obj = "4h"
+explain = "Ephemeral variables, outputs and resources are never persisted."
+
+[[stages.questions]]
+type = "single"
+q = "How should you provide the value for `variable \"api_token\" { sensitive = true }` in a CI pipeline?"
+options = [
+  "Hard-code it as the variable's default",
+  "Set `TF_VAR_api_token` from the CI system's secret store",
+  "Write it into `main.tf` and delete it after apply",
+  "Put it in `terraform.tfvars` committed to Git",
+]
+answer = 1
+obj = "4h"
+explain = "Inject from a secret store as an environment variable."
+
+[[stages]]
+id = "lab3"
+title = "Lab: Secrets & the state file"
+lesson = '''
+You'll handle a database password the right way: a **sensitive** variable supplied through an **environment variable**. Then you'll look at the state file to see why state itself must be protected.
+'''
+[stages.lab]
+goal = '''
+1. In `variables.tf`, declare `db_password` as a `string` with **`sensitive = true`** and **no default**.
+2. In `outputs.tf`, add an output `connection_string` = `"postgres://app:${var.db_password}@db:5432/app"`, marked **sensitive**.
+3. Apply, passing the password through the environment:
+   `TF_VAR_db_password='S3cret!' terraform apply`
+   Notice that the plan shows `(sensitive value)`.
+4. Open the **`terraform.tfstate`** tab and search for `S3cret!` 😱. Then run `terraform show` and notice it's still redacted there.
+'''
+suggested = ["terraform init", "TF_VAR_db_password='S3cret!' terraform apply", "terraform show", "terraform output"]
+hints = [
+  "`variable \"db_password\" { type = string  sensitive = true }` (put each argument on its own line)",
+  "Without `sensitive = true` on the output, Terraform refuses to plan, because the output exposes a sensitive variable.",
+]
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+'''
+"main.tf" = '''
+# local_sensitive_file never prints its content in plans
+resource "local_sensitive_file" "db_config" {
+  filename = "db.env"
+  content  = "DB_PASSWORD=${var.db_password}\n"
+}
+'''
+"variables.tf" = '''
+# declare db_password here
+'''
+"outputs.tf" = '''
+# declare connection_string here
+'''
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'variable\s+"db_password"\s*\{[^}]*sensitive\s*=\s*true'
+msg = "`db_password` is marked sensitive"
+[[stages.lab.checks]]
+type = "config_not_regex"
+pattern = 'variable\s+"db_password"\s*\{[^}]*default'
+msg = "`db_password` has no default (no secrets in code!)"
+[[stages.lab.checks]]
+type = "config_not_regex"
+pattern = 'S3cret'
+msg = "The password isn't hard-coded anywhere in `.tf` files"
+[[stages.lab.checks]]
+type = "resource"
+address = "local_sensitive_file.db_config"
+msg = "`local_sensitive_file.db_config` was applied"
+[[stages.lab.checks]]
+type = "output"
+name = "connection_string"
+sensitive = true
+regex = 'postgres://app:.+@db:5432/app'
+msg = "Output `connection_string` exists and is sensitive"
+
+[[stages]]
+id = "boss"
+title = "Boss: The Expression Sphinx"
+boss = true
+lesson = "The Sphinx speaks only in expressions, conditions and secrets. Answer its riddles. 80% to pass."
+
+[[stages.questions]]
+type = "single"
+q = "What does this expression return?"
+code = '''
+[for s in ["dev", "prod", "test"] : upper(s) if s != "test"]
+'''
+options = ['`["DEV", "PROD", "TEST"]`', '`["DEV", "PROD"]`', '`["dev", "prod"]`', '`{ DEV = "dev", PROD = "prod" }`']
+answer = 1
+obj = "4e"
+explain = "The `if` clause filters out \"test\", then `upper` transforms the rest."
+
+[[stages.questions]]
+type = "single"
+q = "An app server must not be created until an IAM policy attachment exists, but it doesn't reference that attachment anywhere. What do you add to the server?"
+options = ["`lifecycle { create_before_destroy = true }`", "`depends_on = [aws_iam_role_policy_attachment.app]`", "`count = 1`", "A `check` block"]
+answer = 1
+obj = "4f"
+explain = "That's a hidden dependency, which is exactly what `depends_on` is for."
+
+[[stages.questions]]
+type = "single"
+q = "Which custom condition type would stop an apply if an output's value is invalid?"
+options = ["`check` block", "`precondition` in the output block", "`ignore_changes`", "`validation` in the output block"]
+answer = 1
+obj = "4g"
+explain = "Outputs support `precondition` blocks. Failures are errors."
+
+[[stages.questions]]
+type = "single"
+q = "Which statement about `dynamic` blocks is TRUE?"
+options = [
+  "They create multiple resources",
+  "They generate repeated nested blocks, and overusing them hurts readability",
+  "They can only be used in modules",
+  "They replace `for_each` on resources",
+]
+answer = 1
+obj = "4e"
+explain = "Dynamic blocks are for nested blocks; HashiCorp recommends using them sparingly."
+
+[[stages.questions]]
+type = "single"
+q = "Which function would you use to combine `[\"a\"]` and `[\"b\", \"c\"]` into one list?"
+options = ["`merge`", "`concat`", "`join`", "`flatten`"]
+answer = 1
+obj = "4e"
+explain = "`concat` joins lists. `merge` is for maps, `join` makes a string, and `flatten` flattens nested lists."
+
+[[stages.questions]]
+type = "multi"
+q = "Where can a value marked `sensitive` still appear in plain text? (choose 2)"
+options = ["The state file", "A saved plan file", "`terraform plan` console output", "`terraform apply` console output"]
+answer = [0, 1]
+obj = "4h"
+explain = "State and plan files contain the real values. CLI output is redacted."
+
+[[stages.questions]]
+type = "single"
+q = "A list of 5 users drives `count`. You remove the 2nd user. What happens to users 3–5?"
+options = [
+  "Nothing",
+  "Their indexes shift, so Terraform plans to update or replace them",
+  "They're deleted permanently and never re-created",
+  "Terraform errors",
+]
+answer = 1
+obj = "4e"
+explain = "This is the classic count pitfall. Use `for_each` keyed by name to avoid it."
+
+[[stages.questions]]
+type = "single"
+q = "Which lifecycle argument forces a resource to be replaced when another resource's attribute changes?"
+options = ["`replace_triggered_by`", "`depends_on`", "`create_before_destroy`", "`ignore_changes`"]
+answer = 0
+obj = "4f"
+explain = "`replace_triggered_by = [aws_launch_template.app.latest_version]` (for example)."
+
+[[stages.questions]]
+type = "single"
+q = "What does `\"%{ if var.admin }root%{ else }guest%{ endif }\"` evaluate to when `var.admin = false`?"
+options = ['`"root"`', '`"guest"`', '`""`', 'An error']
+answer = 1
+obj = "4e"
+explain = "String template directives: `%{ if }…%{ else }…%{ endif }`."

@@ -1,0 +1,596 @@
+id = "w3"
+order = 3
+title = "The Core Workflow"
+subtitle = "init, validate, plan, apply, destroy and fmt, plus every flag the exam likes to ask about."
+objective = "Objective 3 · Core Terraform workflow"
+objective_code = "3"
+icon = "⚙️"
+
+[[stages]]
+id = "s1"
+title = "The workflow at a glance"
+lesson = '''
+HashiCorp describes the core workflow in three steps:
+
+1. **Write:** author infrastructure as code
+2. **Plan:** preview changes before applying
+3. **Apply:** provision reproducible infrastructure
+
+In practice, on the CLI:
+
+```bash
+terraform init        # once per working dir (and when providers/modules/backend change)
+terraform fmt         # tidy formatting
+terraform validate    # catch errors early
+terraform plan        # preview
+terraform apply       # make it so
+terraform destroy     # tear down (when you're done)
+```
+
+### In a team
+- **Write:** on a branch, in version control
+- **Plan:** open a pull request; CI (or HCP Terraform) runs a **speculative plan** and posts it for review
+- **Apply:** after approval and merge, apply the reviewed changes
+
+> 📝 The exam often asks "what's the correct order?" or "which step lets you review changes?" The answer to the second is **plan**.
+'''
+
+[[stages.questions]]
+type = "order"
+q = "Order the three steps of HashiCorp's core Terraform workflow:"
+items = ["Write", "Plan", "Apply"]
+obj = "3a"
+explain = "Write → Plan → Apply."
+
+[[stages.questions]]
+type = "order"
+q = "Order these commands for a typical first run on a new configuration:"
+items = ["`terraform init`", "`terraform validate`", "`terraform plan`", "`terraform apply`"]
+obj = "3a"
+explain = "init → validate → plan → apply. (`fmt` can go anywhere before you commit.)"
+
+[[stages.questions]]
+type = "single"
+q = "In a team workflow, when is a **speculative plan** usually generated?"
+options = [
+  "After every apply",
+  "When a pull request is opened, so reviewers can see the impact",
+  "Only when running `terraform destroy`",
+  "Never; speculative plans are a deprecated feature",
+]
+answer = 1
+obj = "3a"
+explain = "Speculative (plan-only) runs on PRs show reviewers exactly what would change."
+
+[[stages.questions]]
+type = "single"
+q = "Which stage of the workflow is mainly for reviewing proposed changes?"
+options = ["Write", "Plan", "Apply", "Init"]
+answer = 1
+obj = "3a"
+explain = "The plan is your review step."
+
+[[stages]]
+id = "s2"
+title = "init & validate"
+lesson = '''
+### `terraform init`
+Initializes a **working directory**. It:
+- Downloads **providers** (to `.terraform/providers`) and writes/updates `.terraform.lock.hcl`
+- Downloads **modules** (to `.terraform/modules`)
+- Configures the **backend** (where state lives)
+
+It's **safe to run many times**. Re-run it when you add or change providers, modules, or backend settings.
+
+Useful flags:
+
+| Flag | Purpose |
+|---|---|
+| `-upgrade` | Upgrade providers/modules to the newest versions allowed by constraints |
+| `-reconfigure` | Re-initialize the backend, ignoring any existing backend configuration |
+| `-migrate-state` | Move existing state to a newly configured backend |
+| `-backend-config=...` | Supply backend settings (partial configuration) |
+| `-backend=false` | Skip backend initialization |
+| `-get=false` | Skip module installation |
+
+> `terraform init` does **not** create any infrastructure and doesn't need cloud credentials (unless the backend does).
+
+### `terraform validate`
+Checks that the configuration is **syntactically valid and internally consistent**: correct argument names, types, references to things that exist, required arguments present.
+
+- Needs an initialized directory (it uses the provider schemas)
+- Does **not** contact remote APIs or check state, so it can't tell whether a bucket name is taken
+- Great in CI and editors; `-json` gives machine-readable output
+'''
+
+[[stages.questions]]
+type = "multi"
+q = "What does `terraform init` do? (choose 3)"
+options = [
+  "Downloads provider plugins",
+  "Downloads modules referenced in the configuration",
+  "Initializes the backend",
+  "Creates the resources in the configuration",
+  "Formats the code",
+]
+answer = [0, 1, 2]
+obj = "3b"
+explain = "Providers, modules and backend. It never creates infrastructure."
+
+[[stages.questions]]
+type = "single"
+q = "You changed the `backend` block to point to a new S3 bucket and want to copy existing state there. Which command?"
+options = ["`terraform init -migrate-state`", "`terraform apply -backend`", "`terraform state push`", "`terraform init -upgrade`"]
+answer = 0
+obj = "3b"
+explain = "`init -migrate-state` moves existing state to the new backend. `-reconfigure` would ignore the old state instead."
+
+[[stages.questions]]
+type = "single"
+q = "Is it safe to run `terraform init` multiple times?"
+options = ["No, it re-creates resources", "Yes, it's idempotent and safe to re-run", "Only with `-force`", "Only before the first apply"]
+answer = 1
+obj = "3b"
+explain = "`init` only prepares the directory, so re-running it is safe."
+
+[[stages.questions]]
+type = "single"
+q = "What does `terraform validate` check?"
+options = [
+  "That cloud credentials are valid",
+  "Syntax and internal consistency of the configuration (arguments, types, references)",
+  "That resource names are globally unique in the cloud",
+  "That the state matches reality",
+]
+answer = 1
+obj = "3c"
+explain = "It's an offline check of the configuration. It doesn't call cloud APIs or read remote state."
+
+[[stages.questions]]
+type = "single"
+q = "A config references `var.region` but no `variable \"region\"` block exists. Which command will catch this **first** without touching any infrastructure?"
+options = ["`terraform fmt`", "`terraform validate`", "`terraform output`", "`terraform providers`"]
+answer = 1
+obj = "3c"
+explain = "`validate` reports references to undeclared variables. `fmt` only cares about style."
+
+[[stages.questions]]
+type = "single"
+q = "Does `terraform validate` require `terraform init` first?"
+options = ["No, never", "Yes, it needs the providers' schemas installed", "Only if remote state is used", "Only for modules from Git"]
+answer = 1
+obj = "3c"
+explain = "Validation uses provider schemas, so the directory must be initialized (`init -backend=false` is enough)."
+
+[[stages]]
+id = "s3"
+title = "plan & apply"
+lesson = '''
+### `terraform plan`
+Creates an **execution plan**: refreshes state, compares it to the configuration, and lists the actions.
+
+```
+Plan: 2 to add, 1 to change, 0 to destroy.
+```
+
+| Flag | Purpose |
+|---|---|
+| `-out=FILE` | Save the plan to a file so you can apply **exactly** that plan later |
+| `-destroy` | Plan to destroy everything |
+| `-refresh-only` | Only update state to match reality; propose no infrastructure changes |
+| `-refresh=false` | Skip refreshing (faster, but riskier) |
+| `-target=ADDR` | Limit to specific resources (for exceptional cases only) |
+| `-replace=ADDR` | Force a resource to be replaced |
+| `-var 'k=v'`, `-var-file=f` | Set input variables |
+| `-detailed-exitcode` | Exit code 0 = no changes, 1 = error, **2 = changes present** |
+
+### `terraform apply`
+- Without a plan file: makes a new plan, shows it, asks for `yes` (or use `-auto-approve`)
+- With a plan file: `terraform apply tfplan` applies that saved plan **without asking**. If state changed since the plan was made, Terraform refuses (the plan is "stale")
+- Accepts most of the same flags: `-target`, `-replace`, `-var`, `-refresh-only`, `-parallelism=N` (default 10)
+
+### Replacing a resource
+`terraform apply -replace="aws_instance.web"` forces re-creation. It replaces the old `terraform taint` command, which is deprecated.
+
+> 📝 Saved plan files can contain **sensitive values**. Treat them like secrets.
+'''
+
+[[stages.questions]]
+type = "fill"
+q = "Which flag saves a plan to a file so you can apply exactly that plan later? (just the flag name, no value)"
+answer = ["-out", "--out", "-out=", "-out=file"]
+obj = "3d"
+explain = "`terraform plan -out=tfplan`, then `terraform apply tfplan`."
+
+[[stages.questions]]
+type = "single"
+q = "What happens when you run `terraform apply tfplan` with a saved plan?"
+options = [
+  "It re-plans and asks for confirmation",
+  "It applies the saved plan without asking for confirmation",
+  "It only validates the plan",
+  "It errors because apply doesn't accept files",
+]
+answer = 1
+obj = "3e"
+explain = "Applying a saved plan doesn't prompt. Approval is implied by the act of saving and reviewing it."
+
+[[stages.questions]]
+type = "single"
+q = "`terraform plan -detailed-exitcode` returns **2**. What does it mean?"
+options = ["An error occurred", "No changes", "The plan succeeded and there are changes", "The state is locked"]
+answer = 2
+obj = "3d"
+explain = "0 = no changes, 1 = error, 2 = success with changes. Useful in CI for drift detection."
+
+[[stages.questions]]
+type = "single"
+q = "What is the modern replacement for `terraform taint aws_instance.web`?"
+options = [
+  "`terraform apply -replace=\"aws_instance.web\"`",
+  "`terraform state rm aws_instance.web`",
+  "`terraform refresh`",
+  "`terraform apply -target=aws_instance.web`",
+]
+answer = 0
+obj = "3e"
+explain = "`-replace` shows the replacement in the plan before you approve it. `taint` is deprecated."
+
+[[stages.questions]]
+type = "single"
+q = "When should you use `-target`?"
+options = [
+  "For every apply, to speed things up",
+  "Only in exceptional cases, like recovering from errors, not as routine practice",
+  "To select a workspace",
+  "To choose which provider version to use",
+]
+answer = 1
+obj = "3d"
+explain = "Terraform itself warns that `-target` is for exceptional situations. Routine use leads to partial, inconsistent applies."
+
+[[stages.questions]]
+type = "single"
+q = "What is the default number of concurrent operations Terraform performs during apply?"
+options = ["1", "5", "10", "Unlimited"]
+answer = 2
+obj = "3e"
+explain = "`-parallelism` defaults to **10**."
+
+[[stages.questions]]
+type = "single"
+q = "Someone ran an apply between your `plan -out=tfplan` and `apply tfplan`. What happens?"
+options = [
+  "Your plan applies anyway and overwrites their changes",
+  "Terraform detects the saved plan is stale and refuses to apply it",
+  "Terraform merges both changes",
+  "Terraform deletes the state",
+]
+answer = 1
+obj = "3e"
+explain = "Saved plans are tied to the state they were made against. A changed state makes them stale."
+
+[[stages]]
+id = "s4"
+title = "destroy & fmt"
+lesson = '''
+### `terraform destroy`
+Destroys **all** resources managed by the current configuration and state.
+
+- It's an alias for `terraform apply -destroy`
+- Preview it with `terraform plan -destroy`
+- Asks for confirmation (`-auto-approve` skips it)
+- `-target` can limit it (exceptional use only)
+- Only touches what's **in state**. Things created outside Terraform are untouched
+- To protect critical resources: `lifecycle { prevent_destroy = true }`
+
+### `terraform fmt`
+Rewrites files to the canonical HCL **style** (2-space indents, aligned `=` signs…).
+
+| Flag | Purpose |
+|---|---|
+| *(none)* | Format `.tf`/`.tfvars` files in the current directory |
+| `-recursive` | Also process sub-directories (by default only the current directory) |
+| `-check` | Don't change files; exit non-zero if any file needs formatting (great for CI) |
+| `-diff` | Show the formatting changes |
+
+`fmt` only changes **style**, never meaning. It won't fix a broken reference.
+
+### Style conventions
+- 2 spaces per indent level
+- Align `=` for consecutive arguments
+- Meta-arguments (`count`, `for_each`, `provider`) first, then arguments, then nested blocks, with `lifecycle` and `depends_on` last
+'''
+
+[[stages.questions]]
+type = "single"
+q = "`terraform destroy` is equivalent to which command?"
+options = ["`terraform apply -destroy`", "`terraform state rm -all`", "`terraform plan -destroy`", "`terraform delete`"]
+answer = 0
+obj = "3f"
+explain = "`destroy` is an alias for `apply -destroy`. `plan -destroy` only previews."
+
+[[stages.questions]]
+type = "single"
+q = "How do you preview what `terraform destroy` would remove, without removing anything?"
+options = ["`terraform destroy -dry-run`", "`terraform plan -destroy`", "`terraform show -destroy`", "`terraform validate -destroy`"]
+answer = 1
+obj = "3f"
+explain = "`terraform plan -destroy` shows the destroy plan."
+
+[[stages.questions]]
+type = "single"
+q = "A VM was created manually in the console (not via Terraform). What does `terraform destroy` do to it?"
+options = ["Destroys it", "Nothing, because it isn't in Terraform's state", "Imports it, then destroys it", "Asks whether to destroy it"]
+answer = 1
+obj = "3f"
+explain = "Terraform only manages what's in its state."
+
+[[stages.questions]]
+type = "fill"
+q = "Which flag makes `terraform fmt` exit with an error if files aren't formatted, without changing them?"
+answer = ["-check", "--check"]
+obj = "3g"
+explain = "`terraform fmt -check` is perfect for CI. Add `-recursive` for sub-folders."
+
+[[stages.questions]]
+type = "single"
+q = "By default, which files does `terraform fmt` format?"
+options = [
+  "All `.tf` files in the current directory and every sub-directory",
+  "Configuration files in the current directory only",
+  "Only `main.tf`",
+  "Only files changed since the last commit",
+]
+answer = 1
+obj = "3g"
+explain = "Current directory only, unless you add `-recursive`."
+
+[[stages.questions]]
+type = "single"
+q = "Can `terraform fmt` fix a reference to a resource that doesn't exist?"
+options = ["Yes, it removes broken references", "No, it only changes formatting and style", "Only with `-fix`", "Only for variables"]
+answer = 1
+obj = "3g"
+explain = "`fmt` = style only. Use `validate` to find logic errors."
+
+[[stages.questions]]
+type = "single"
+q = "Which lifecycle setting makes Terraform error if a plan would destroy a resource?"
+options = ["`create_before_destroy = true`", "`prevent_destroy = true`", "`ignore_changes = all`", "`deletion_protection = true`"]
+answer = 1
+obj = "3f"
+explain = "`lifecycle { prevent_destroy = true }` makes any plan that would destroy the resource fail. (`deletion_protection` is a provider-specific argument on some resources.)"
+
+[[stages]]
+id = "lab1"
+title = "Lab: Fix the broken config"
+lesson = '''
+A teammate pushed a broken configuration. It's ugly **and** wrong. Use `terraform fmt` to fix the style, and `terraform validate` to find the real errors.
+'''
+[stages.lab]
+goal = '''
+1. Run `terraform init`, then `terraform validate`, and read the errors carefully.
+2. Fix every error in `main.tf` (there are **two** bugs).
+3. Run `terraform fmt` to clean up the formatting.
+4. `terraform apply` and **Check my work**.
+'''
+suggested = ["terraform init", "terraform validate", "terraform fmt", "terraform fmt -check -diff", "terraform apply"]
+hints = [
+  "One bug is an argument name that doesn't exist on `local_file`. Check the spelling: the argument is `filename`.",
+  "The other bug references a resource by the wrong name. Look at what the `random_pet` is actually called.",
+]
+solution = '''
+```hcl
+resource "random_pet" "release" {
+  length = 3
+}
+
+resource "local_file" "report" {
+  filename = "report.txt"
+  content  = "Release name: ${random_pet.release.id}"
+}
+```
+'''
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+'''
+"main.tf" = '''
+resource "random_pet" "release" {
+length=3
+}
+
+resource "local_file"   "report" {
+        file_name = "report.txt"
+  content = "Release name: ${random_pet.relase.id}"
+}
+'''
+[[stages.lab.checks]]
+type = "validate_ok"
+msg = "`terraform validate` passes"
+[[stages.lab.checks]]
+type = "fmt_ok"
+msg = "`terraform fmt -check` passes (files are formatted)"
+[[stages.lab.checks]]
+type = "attr"
+address = "local_file.report"
+attr = "content"
+regex = '^Release name: [a-z]+-[a-z]+-[a-z]+$'
+msg = "`report.txt` contains the 3-word release name"
+
+[[stages]]
+id = "lab2"
+title = "Lab: Saved plans & forced replacement"
+lesson = '''
+In production you usually want to apply **exactly** the plan that was reviewed. That's what saved plans are for. You'll also force a resource to be replaced with `-replace`.
+
+Setup has already applied a `random_pet.ticket`, and then someone added a new resource to the config, so there's a pending change.
+'''
+[stages.lab]
+goal = '''
+1. Run `terraform plan -out=tfplan` and read the summary.
+2. Apply **that saved plan**: `terraform apply tfplan`.
+3. The ticket name is unlucky. Force a new one with `terraform apply -replace=random_pet.ticket`.
+4. **Check my work.**
+'''
+suggested = ["terraform plan -out=tfplan", "terraform apply tfplan", "terraform apply -replace=random_pet.ticket", "terraform show"]
+setup = ["terraform init", "terraform apply"]
+hints = [
+  "Run exactly: `terraform plan -out=tfplan`, then `terraform apply tfplan`.",
+  "`-replace` takes a resource address: `terraform apply -replace=random_pet.ticket`",
+]
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+'''
+"main.tf" = '''
+resource "random_pet" "ticket" {
+  length = 2
+}
+'''
+[stages.lab.post_setup_files]
+"main.tf" = '''
+resource "random_pet" "ticket" {
+  length = 2
+}
+
+# New since the last apply:
+resource "local_file" "ticket" {
+  filename = "ticket.txt"
+  content  = "Ticket: ${random_pet.ticket.id}"
+}
+'''
+[[stages.lab.checks]]
+type = "history"
+pattern = 'terraform plan .*-out[= ]\S+'
+msg = "You saved a plan with `-out`"
+[[stages.lab.checks]]
+type = "history"
+pattern = 'terraform apply -auto-approve [^-\s]\S*'
+msg = "You applied the saved plan file"
+[[stages.lab.checks]]
+type = "resource"
+address = "local_file.ticket"
+msg = "`local_file.ticket` was created"
+[[stages.lab.checks]]
+type = "snapshot_same"
+was = "random_pet.ticket"
+address = "random_pet.ticket"
+attr = "id"
+expect_change = true
+msg = "`random_pet.ticket` was replaced (it has a new name)"
+[[stages.lab.checks]]
+type = "no_changes"
+msg = "Nothing left to change (`plan` is clean)"
+
+[[stages]]
+id = "boss"
+title = "Boss: The Pipeline Golem"
+boss = true
+lesson = "The Golem is built from CLI flags. Know your init / validate / plan / apply / destroy / fmt options. 80% to pass."
+
+[[stages.questions]]
+type = "single"
+q = "A CI job must fail if any `.tf` file in the repo, including sub-folders, isn't properly formatted. Which command?"
+options = ["`terraform fmt -recursive`", "`terraform fmt -check -recursive`", "`terraform validate -fmt`", "`terraform fmt -diff`"]
+answer = 1
+obj = "3g"
+explain = "`-check` = don't write, fail if changes are needed; `-recursive` = include sub-directories."
+
+[[stages.questions]]
+type = "single"
+q = "Which command can run **without** initializing a backend or contacting any cloud, yet still catch a misspelled argument name?"
+options = ["`terraform plan`", "`terraform validate` (after `init -backend=false`)", "`terraform apply -refresh=false`", "`terraform show`"]
+answer = 1
+obj = "3c"
+explain = "`validate` works offline using provider schemas, so `init -backend=false` is enough."
+
+[[stages.questions]]
+type = "single"
+q = "You want to plan **only** the state update to match manual changes made in the cloud, without proposing infrastructure changes. Which flag?"
+options = ["`-refresh=false`", "`-refresh-only`", "`-target`", "`-lock=false`"]
+answer = 1
+obj = "3d"
+explain = "`terraform plan -refresh-only` (and `apply -refresh-only` to save it) updates state to match reality."
+
+[[stages.questions]]
+type = "order"
+q = "Order the steps of a reviewed, exact production deployment:"
+items = ["`terraform init`", "`terraform plan -out=release.tfplan`", "Team reviews the plan output", "`terraform apply release.tfplan`"]
+obj = "3d"
+explain = "Save the plan, review it, apply exactly that file."
+
+[[stages.questions]]
+type = "single"
+q = "After adding a new module block to your configuration, `terraform plan` errors with \"Module not installed\". What should you run?"
+options = ["`terraform get -update` is the only option", "`terraform init`", "`terraform apply -refresh-only`", "`terraform fmt`"]
+answer = 1
+obj = "3b"
+explain = "`init` installs modules (and providers). `terraform get` also downloads modules, but `init` is the standard answer."
+
+[[stages.questions]]
+type = "multi"
+q = "Which commands can make changes to real infrastructure? (choose 2)"
+options = ["`terraform apply`", "`terraform plan`", "`terraform destroy`", "`terraform validate`", "`terraform fmt`"]
+answer = [0, 2]
+obj = "3e"
+explain = "Only `apply` and `destroy` (which is `apply -destroy`) change infrastructure. `fmt` changes files, not infrastructure."
+
+[[stages.questions]]
+type = "single"
+q = "What does `terraform apply -auto-approve` do differently from `terraform apply`?"
+options = ["Skips planning", "Skips the interactive approval prompt", "Skips refreshing state", "Applies only approved resources"]
+answer = 1
+obj = "3e"
+explain = "It still plans; it just doesn't wait for you to type `yes`."
+
+[[stages.questions]]
+type = "single"
+q = "You switched backends and do NOT want to migrate the old state; you want to start fresh with the new backend. Which flag?"
+options = ["`terraform init -migrate-state`", "`terraform init -reconfigure`", "`terraform init -upgrade`", "`terraform init -force-copy`"]
+answer = 1
+obj = "3b"
+explain = "`-reconfigure` ignores the existing backend configuration and state. `-migrate-state` copies state over."
+
+[[stages.questions]]
+type = "single"
+q = "A resource has `lifecycle { prevent_destroy = true }`. You run `terraform destroy`. What happens?"
+options = [
+  "Everything is destroyed except that resource",
+  "Terraform returns an error and destroys nothing",
+  "The resource is destroyed after a warning",
+  "Terraform removes it from state without destroying",
+]
+answer = 1
+obj = "3f"
+explain = "The plan fails because it would destroy a protected resource. Nothing is destroyed."
+
+[[stages.questions]]
+type = "fill"
+q = "Complete the command to force re-creation of `aws_instance.app` during apply: `terraform apply ________=aws_instance.app`"
+answer = ["-replace", "--replace"]
+obj = "3e"
+explain = "`terraform apply -replace=aws_instance.app`"

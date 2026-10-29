@@ -1,0 +1,569 @@
+id = "w6"
+order = 6
+title = "Modules"
+subtitle = "Where modules come from, how variables flow in and out of them, and how to version them."
+objective = "Objective 5 · Terraform modules"
+objective_code = "5"
+icon = "📦"
+
+[[stages]]
+id = "s1"
+title = "What modules are & where they come from"
+lesson = '''
+A **module** is just a folder of `.tf` files. Every configuration is a module:
+
+- The **root module**: the folder where you run `terraform`
+- **Child modules**: modules called from another module with a `module` block
+
+```hcl
+module "network" {
+  source  = "terraform-aws-modules/vpc/aws"   # where to get it
+  version = "~> 5.0"                          # only for registry sources
+
+  cidr = "10.0.0.0/16"                        # = the module's input variables
+}
+```
+
+### Module sources
+| Source | Example |
+|---|---|
+| Local path | `source = "./modules/network"` (must start with `./` or `../`) |
+| Terraform Registry | `source = "hashicorp/consul/aws"` → `<NAMESPACE>/<NAME>/<PROVIDER>` |
+| Private registry (HCP Terraform) | `source = "app.terraform.io/my-org/vpc/aws"` → `<HOST>/<ORG>/<NAME>/<PROVIDER>` |
+| GitHub | `source = "github.com/acme/tf-modules//vpc"` |
+| Generic Git | `source = "git::https://example.com/vpc.git?ref=v1.2.0"` |
+| HTTP URL (archive) | `source = "https://example.com/vpc-module.zip"` |
+| S3 / GCS buckets | `source = "s3::https://s3.amazonaws.com/bucket/vpc.zip"` |
+
+- `//` separates a **sub-directory** inside a repo or archive: `...repo.git//modules/vpc`
+- `terraform init` (or `terraform get`) downloads modules into `.terraform/modules/`
+- Local modules aren't copied; they're used in place
+
+### Why modules?
+Organise and reuse code, encapsulate complexity, enforce standards, and share via a registry.
+
+> 📝 Public registry modules follow the naming convention `terraform-<PROVIDER>-<NAME>` for their repositories.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "What is the **root module**?"
+options = [
+  "The first module you download from the registry",
+  "The configuration in the working directory where you run Terraform",
+  "A module that only root users can apply",
+  "The `modules/` folder",
+]
+answer = 1
+obj = "5a"
+explain = "The root module is your working directory's `.tf` files. Everything it calls is a child module."
+
+[[stages.questions]]
+type = "single"
+q = "Which `source` value refers to a module in the public Terraform Registry?"
+options = ['`"./modules/vpc"`', '`"terraform-aws-modules/vpc/aws"`', '`"git::https://github.com/acme/vpc.git"`', '`"s3::https://bucket/vpc.zip"`']
+answer = 1
+obj = "5a"
+explain = "Registry format: `<NAMESPACE>/<NAME>/<PROVIDER>`."
+
+[[stages.questions]]
+type = "single"
+q = "What must a local module path start with?"
+options = ["`/`", "`./` or `../`", "`local::`", "`file://`"]
+answer = 1
+obj = "5a"
+explain = "Local paths must begin with `./` or `../` so Terraform can tell them apart from registry addresses."
+
+[[stages.questions]]
+type = "single"
+q = "What does the `//` mean in `git::https://example.com/infra.git//modules/vpc`?"
+options = ["A comment", "A sub-directory within the repository", "Two protocols", "A version separator"]
+answer = 1
+obj = "5a"
+explain = "The double slash selects a sub-directory inside the downloaded package."
+
+[[stages.questions]]
+type = "single"
+q = "Where are remote modules stored after `terraform init`?"
+options = ["`~/.terraform.d/modules`", "`.terraform/modules`", "`modules/` in your repo", "Inside the state file"]
+answer = 1
+obj = "5a"
+explain = "`.terraform/modules/` (plus a `modules.json` manifest)."
+
+[[stages.questions]]
+type = "single"
+q = "What is the source address format for a module in an HCP Terraform **private registry**?"
+options = [
+  "`<NAMESPACE>/<NAME>/<PROVIDER>`",
+  "`<HOSTNAME>/<ORGANIZATION>/<NAME>/<PROVIDER>`",
+  "`private::<NAME>`",
+  "`hcp://<ORG>/<NAME>`",
+]
+answer = 1
+obj = "5a"
+explain = "Private registry modules include the hostname, e.g. `app.terraform.io/acme/vpc/aws`."
+
+[[stages]]
+id = "s2"
+title = "Variable scope: inputs & outputs"
+lesson = '''
+A module is like a **function**:
+
+- **Input variables** = parameters
+- **Outputs** = return values
+- **Resources & locals inside** = private implementation
+
+```
+root module                         child module ./modules/web
+───────────                         ────────────────────────────
+module "web" {                      variable "instance_count" {}
+  source         = "./modules/web"  resource "aws_instance" "this" {
+  instance_count = 2      ───────►    count = var.instance_count
+}                                   }
+                                    output "ids" {
+module.web.ids          ◄───────      value = aws_instance.this[*].id
+                                    }
+```
+
+### Scope rules (very testable!)
+- A child module **cannot** see the parent's variables, locals or resources. Anything it needs must be **passed in** as an argument.
+- The parent **cannot** reach into a child's resources (`module.web.aws_instance.this` is **not** valid in expressions). It can only read **outputs**: `module.web.ids`.
+- Variables **without defaults** in the child are **required** arguments in the `module` block.
+- Sibling modules share data by passing one's output into the other's input:
+  `subnet_id = module.network.private_subnet_id`
+
+### Providers
+Child modules automatically use the parent's **default** provider configurations. Aliased providers must be passed explicitly with `providers = { aws = aws.west }`.
+
+### Meta-arguments on module blocks
+`count`, `for_each`, `providers`, `depends_on`
+'''
+
+[[stages.questions]]
+type = "single"
+q = "A child module needs the value of the root module's `var.environment`. How does it get it?"
+options = [
+  "It can reference `var.environment` directly",
+  "The root must pass it as an argument in the `module` block, and the child declares a matching variable",
+  "Through `parent.var.environment`",
+  "Through a global variables file",
+]
+answer = 1
+obj = "5b"
+explain = "Variables are scoped to their module. Pass the value explicitly."
+
+[[stages.questions]]
+type = "single"
+q = "How can the root module use a value computed inside a child module?"
+options = [
+  "Reference the child's resource directly: `module.app.aws_instance.web.id`",
+  "The child declares an `output`, and the root references `module.app.<output>`",
+  "With `terraform_remote_state`",
+  "It can't",
+]
+answer = 1
+obj = "5b"
+explain = "Outputs are a module's only public interface."
+
+[[stages.questions]]
+type = "single"
+q = "A child module declares `variable \"name\" {}` with no default. What happens if the `module` block doesn't set `name`?"
+options = ["It defaults to empty", "Terraform errors: missing required argument", "It uses the root's `var.name`", "It prompts interactively"]
+answer = 1
+obj = "5b"
+explain = "Variables without defaults are required module arguments."
+
+[[stages.questions]]
+type = "single"
+q = "Module `db` needs the subnet ID created in module `network`. What's the correct approach?"
+options = [
+  "In db, reference `module.network.aws_subnet.private.id`",
+  "Have network output the subnet ID, and pass `subnet_id = module.network.subnet_id` into db",
+  "Use `depends_on` only",
+  "Put both in the same state file manually",
+]
+answer = 1
+obj = "5b"
+explain = "Output from one module, input to the other."
+
+[[stages.questions]]
+type = "multi"
+q = "Which meta-arguments can be used on a `module` block? (choose 3)"
+options = ["`for_each`", "`count`", "`providers`", "`lifecycle`", "`provisioner`"]
+answer = [0, 1, 2]
+obj = "5b"
+explain = "Modules support `count`, `for_each`, `providers` and `depends_on`. `lifecycle` isn't supported on module blocks."
+
+[[stages]]
+id = "lab1"
+title = "Lab: Build & call a module"
+lesson = '''
+Build a small reusable **greeter** module, then call it **twice** with different inputs.
+'''
+[stages.lab]
+goal = '''
+**In `modules/greeter/`:**
+1. `variables.tf`: `name` (string, required) and `greeting` (string, default `"Hello"`).
+2. `main.tf`: a `local_file` that writes `greetings/<name>.txt` with the content `<greeting>, <name>!`.
+   Use `${path.root}/greetings/${var.name}.txt` so the files land in the root folder.
+3. `outputs.tf`: an output `file` = the file's `filename`.
+
+**In the root `main.tf`:**
+4. `module "alice"` with `name = "alice"` (default greeting).
+5. `module "bob"` with `name = "bob"` and `greeting = "Hi"`.
+6. An output `files` = `[module.alice.file, module.bob.file]`.
+
+Then `terraform init` (it registers the module), and `apply`.
+'''
+suggested = ["terraform init", "terraform validate", "terraform apply", "terraform state list"]
+hints = [
+  "The module block: `module \"alice\" { source = \"./modules/greeter\"  name = \"alice\" }` (one argument per line).",
+  "In the module: `resource \"local_file\" \"this\" { filename = \"${path.root}/greetings/${var.name}.txt\"  content = \"${var.greeting}, ${var.name}!\" }`",
+]
+solution = '''
+**modules/greeter/variables.tf**
+```hcl
+variable "name" {
+  type = string
+}
+
+variable "greeting" {
+  type    = string
+  default = "Hello"
+}
+```
+**modules/greeter/main.tf**
+```hcl
+resource "local_file" "this" {
+  filename = "${path.root}/greetings/${var.name}.txt"
+  content  = "${var.greeting}, ${var.name}!"
+}
+```
+**modules/greeter/outputs.tf**
+```hcl
+output "file" {
+  value = local_file.this.filename
+}
+```
+**main.tf**
+```hcl
+module "alice" {
+  source = "./modules/greeter"
+  name   = "alice"
+}
+
+module "bob" {
+  source   = "./modules/greeter"
+  name     = "bob"
+  greeting = "Hi"
+}
+
+output "files" {
+  value = [module.alice.file, module.bob.file]
+}
+```
+'''
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+'''
+"main.tf" = '''
+# Call the greeter module twice here
+'''
+"modules/greeter/variables.tf" = '''
+# variable "name" ...
+# variable "greeting" ...
+'''
+"modules/greeter/main.tf" = '''
+# resource "local_file" ...
+'''
+"modules/greeter/outputs.tf" = '''
+# output "file" ...
+'''
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'source\s*=\s*"\./modules/greeter"'
+msg = "Root calls `./modules/greeter`"
+[[stages.lab.checks]]
+type = "resource_count"
+rtype = "local_file"
+count = 2
+msg = "Two files are managed (one per module instance)"
+[[stages.lab.checks]]
+type = "file_contains"
+path = "greetings/alice.txt"
+text = "Hello, alice!"
+msg = "`greetings/alice.txt` says `Hello, alice!` (default greeting)"
+[[stages.lab.checks]]
+type = "file_contains"
+path = "greetings/bob.txt"
+text = "Hi, bob!"
+msg = "`greetings/bob.txt` says `Hi, bob!`"
+[[stages.lab.checks]]
+type = "output"
+name = "files"
+regex = 'alice\.txt.*bob\.txt'
+msg = "Root output `files` lists both files (via module outputs)"
+
+[[stages]]
+id = "s3"
+title = "Using & versioning modules"
+lesson = '''
+### Pinning module versions
+| Source type | How to pin |
+|---|---|
+| Terraform Registry / private registry | `version = "~> 5.1"`, using the same constraint syntax as providers |
+| Git | `?ref=v1.2.0` (tag), a branch, or a commit SHA |
+| Local path | ❌ can't be versioned; it's part of your repo, so it shares your repo's version |
+
+```hcl
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "5.8.1"
+}
+
+module "app" {
+  source = "git::https://github.com/acme/tf-app.git?ref=v2.3.0"
+}
+```
+
+### Best practices
+- **Always pin** registry and Git modules, ideally to an exact version or a narrow `~>`
+- Upgrade on purpose: change `version`, run `terraform init -upgrade`, review the plan
+- Module versions are **not** recorded in `.terraform.lock.hcl` (providers only)
+- Registry modules use **semantic versioning** via Git tags (`v1.2.0`)
+- Modules shouldn't configure providers (no `provider` blocks with credentials); they should declare `required_providers` and receive providers from the root
+
+### Publishing to the public registry
+GitHub repo named `terraform-<PROVIDER>-<NAME>`, standard module structure (`main.tf`, `variables.tf`, `outputs.tf`, `README.md`), and semver tags.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "Which module sources support the `version` argument?"
+options = ["All sources", "Registry modules (public or private)", "Only local paths", "Only Git sources"]
+answer = 1
+obj = "5d"
+explain = "The `version` argument only works with registries. Pin Git sources with `?ref=`."
+
+[[stages.questions]]
+type = "fill"
+q = "Complete the Git source to pin tag v1.4.0: `git::https://github.com/acme/net.git________`"
+answer = ["?ref=v1.4.0"]
+obj = "5d"
+explain = "`?ref=` selects a tag, branch or commit."
+
+[[stages.questions]]
+type = "single"
+q = "You bumped a registry module from `version = \"3.1.0\"` to `\"3.2.0\"`. What must you run before plan?"
+options = ["`terraform get -lock`", "`terraform init` (with `-upgrade` if needed)", "`terraform refresh`", "Nothing"]
+answer = 1
+obj = "5d"
+explain = "`init` installs the newly required version. `-upgrade` re-resolves to the newest version allowed by the constraints."
+
+[[stages.questions]]
+type = "single"
+q = "Why should you pin module versions?"
+options = [
+  "Unpinned modules can't be downloaded",
+  "So upstream changes don't unexpectedly alter your infrastructure; upgrades become deliberate",
+  "Pinning makes Terraform faster",
+  "HCP Terraform requires it",
+]
+answer = 1
+obj = "5d"
+explain = "Pinning gives reproducible runs and controlled upgrades."
+
+[[stages.questions]]
+type = "single"
+q = "Can a local module (`source = \"./modules/db\"`) have a `version` argument?"
+options = ["Yes", "No; local modules are versioned together with the calling configuration", "Only with Git", "Only in HCP Terraform"]
+answer = 1
+obj = "5d"
+explain = "Local modules live in your repo, so they share its version history."
+
+[[stages.questions]]
+type = "single"
+q = "How do you call the same module once per entry in a map variable?"
+options = [
+  "Copy the module block for each entry",
+  "Add `for_each = var.my_map` to the module block and use `each.key` / `each.value` in its arguments",
+  "Use `dynamic \"module\"`",
+  "Modules can't be repeated",
+]
+answer = 1
+obj = "5c"
+explain = "Modules support `for_each` and `count` (Terraform 0.13+)."
+
+[[stages]]
+id = "lab2"
+title = "Lab: Modules at scale with for_each"
+lesson = '''
+The `team` module is already written. Use **`for_each`** on the module block to create one roster per team, then collect the module outputs into a map.
+'''
+[stages.lab]
+goal = '''
+1. In the root `main.tf`, call `./modules/team` with **`for_each = var.teams`**, passing:
+   - `name = each.key`
+   - `members = each.value`
+2. Add an output **`rosters`**: a map of team name → that module's `roster_file` output. Use a `for` expression over `module.team`.
+3. `init` + `apply`, then run `terraform state list` and look at addresses like `module.team["platform"].local_file.roster`.
+'''
+suggested = ["terraform init", "terraform apply", "terraform state list", "terraform output"]
+hints = [
+  "`module \"team\" { source = \"./modules/team\"  for_each = var.teams  name = each.key  members = each.value }` (one argument per line)",
+  "`output \"rosters\" { value = { for k, m in module.team : k => m.roster_file } }`",
+]
+[stages.lab.files]
+"versions.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+'''
+"variables.tf" = '''
+variable "teams" {
+  type = map(list(string))
+  default = {
+    platform = ["ana", "ben"]
+    data     = ["chen", "dara", "eli"]
+    security = ["fay"]
+  }
+}
+'''
+"main.tf" = '''
+# module "team" { ... for_each ... }
+# output "rosters" { ... }
+'''
+"modules/team/main.tf" = '''
+variable "name" {
+  type = string
+}
+
+variable "members" {
+  type = list(string)
+}
+
+resource "local_file" "roster" {
+  filename = "${path.root}/teams/${var.name}.txt"
+  content  = "Team ${var.name} (${length(var.members)} members)\n${join("\n", var.members)}\n"
+}
+
+output "roster_file" {
+  value = local_file.roster.filename
+}
+'''
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'module\s+"team"\s*\{[^}]*for_each\s*=\s*var\.teams'
+msg = "`module \"team\"` uses `for_each = var.teams`"
+[[stages.lab.checks]]
+type = "resource"
+address = 'module.team["data"].local_file.roster'
+msg = "`module.team[\"data\"]` exists in state"
+[[stages.lab.checks]]
+type = "resource_count"
+rtype = "local_file"
+count = 3
+msg = "Three rosters managed"
+[[stages.lab.checks]]
+type = "file_contains"
+path = "teams/data.txt"
+text = "Team data (3 members)"
+msg = "`teams/data.txt` lists 3 members"
+[[stages.lab.checks]]
+type = "output"
+name = "rosters"
+regex = '"platform":\s*".*teams/platform\.txt"'
+msg = "Output `rosters` maps team → roster file"
+
+[[stages]]
+id = "boss"
+title = "Boss: The Module Kraken"
+boss = true
+lesson = "Each tentacle is a module question. 80% to pass."
+
+[[stages.questions]]
+type = "single"
+q = "From the root module, which expression is valid?"
+options = ["`module.vpc.aws_subnet.private.id`", "`module.vpc.private_subnet_ids`, where that's an output of the vpc module", "`vpc.output.private_subnet_ids`", "`var.vpc.private_subnet_ids`"]
+answer = 1
+obj = "5b"
+explain = "Only module outputs are accessible: `module.<name>.<output>`."
+
+[[stages.questions]]
+type = "single"
+q = "Which source is a valid **registry** module address?"
+options = ['`"hashicorp/consul/aws"`', '`"hashicorp/consul"`', '`"registry/hashicorp/consul"`', '`"consul@aws"`']
+answer = 0
+obj = "5a"
+explain = "Three parts: namespace/name/provider."
+
+[[stages.questions]]
+type = "single"
+q = "A module in Git is referenced without `?ref=`. What does Terraform fetch?"
+options = ["The latest tag", "The repository's default branch (HEAD)", "Nothing; ref is required", "The oldest commit"]
+answer = 1
+obj = "5d"
+explain = "Without a ref, Git sources use the default branch. Pin a tag for stability."
+
+[[stages.questions]]
+type = "single"
+q = "Which file records the module versions that were installed?"
+options = [
+  "`.terraform.lock.hcl`",
+  "None; module versions are not locked, so you pin them with `version` or `?ref`",
+  "`terraform.tfstate`",
+  "`versions.tf`",
+]
+answer = 1
+obj = "5d"
+explain = "The dependency lock file only covers providers."
+
+[[stages.questions]]
+type = "single"
+q = "A child module uses `aws_instance` resources. The root has one un-aliased `provider \"aws\"` block. What happens?"
+options = [
+  "The child must declare its own provider block",
+  "The child automatically inherits the root's default aws provider configuration",
+  "Terraform errors",
+  "The child uses no provider",
+]
+answer = 1
+obj = "5b"
+explain = "Default (un-aliased) provider configurations are inherited automatically."
+
+[[stages.questions]]
+type = "multi"
+q = "Which are valid module source types? (choose 3)"
+options = ["Local paths", "Terraform Registry", "Git repositories", "Docker images", "npm packages"]
+answer = [0, 1, 2]
+obj = "5a"
+explain = "Also valid: HTTP URLs, S3, GCS, Mercurial and private registries. Docker images and npm packages are not."
+
+[[stages.questions]]
+type = "single"
+q = "What happens when you run `terraform plan` right after adding a new remote module block, without running init?"
+options = ["The module is downloaded automatically", "Terraform errors that the module isn't installed; run `terraform init`", "The block is ignored", "The plan succeeds with no changes"]
+answer = 1
+obj = "5c"
+explain = "Modules must be installed with `init` (or `get`) first."
+
+[[stages.questions]]
+type = "single"
+q = "Inside a child module, what does `path.module` refer to?"
+options = ["The root module's directory", "The child module's own directory", "The current working directory", "`.terraform/modules`"]
+answer = 1
+obj = "5b"
+explain = "`path.module` is the directory of the module where the expression is written. Use `path.root` for the root."

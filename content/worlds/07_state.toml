@@ -1,0 +1,759 @@
+id = "w7"
+order = 7
+title = "State Mastery"
+subtitle = "Local and remote backends, locking, drift, and CLI workspaces, using a real backend run by the game."
+objective = "Objective 6 · Terraform state management"
+objective_code = "6"
+icon = "🗄️"
+
+[[stages]]
+id = "s1"
+title = "The local backend"
+lesson = '''
+A **backend** decides **where state is stored** (and whether it can be locked). If you don't configure one, Terraform uses the **`local` backend**.
+
+```hcl
+terraform {
+  backend "local" {
+    path = "relative/path/to/terraform.tfstate"   # optional; default is terraform.tfstate
+  }
+}
+```
+
+### Local backend facts
+- State file: `terraform.tfstate` in the working directory (default)
+- Previous version saved as `terraform.tfstate.backup`
+- **Locking:** uses the operating system's file locking
+- With **CLI workspaces**, non-default workspaces live in `terraform.tfstate.d/<workspace>/terraform.tfstate`
+- Fine for learning and solo work; **not** good for teams: no sharing, no central locking, easy to lose, secrets sit on laptops
+
+### Why teams move to remote backends
+| Need | Local | Remote (S3, azurerm, gcs, HCP Terraform…) |
+|---|---|---|
+| Share state with a team | ❌ | ✅ |
+| Locking across machines | ❌ | ✅ (most backends) |
+| Encryption & access control | Your disk | ✅ |
+| Versioning / recovery | Manual | ✅ (e.g. S3 versioning) |
+'''
+
+[[stages.questions]]
+type = "single"
+q = "If no backend is configured, where does Terraform store state?"
+options = ["In HCP Terraform", "In `terraform.tfstate` in the working directory (local backend)", "In memory only", "In `~/.terraform.d/state`"]
+answer = 1
+obj = "6a"
+explain = "The default is the `local` backend, writing `terraform.tfstate`."
+
+[[stages.questions]]
+type = "fill"
+q = "What file holds the previous state version when using the local backend?"
+answer = ["terraform.tfstate.backup"]
+obj = "6a"
+explain = "`terraform.tfstate.backup` is written each time state is updated."
+
+[[stages.questions]]
+type = "single"
+q = "With the local backend, where is the state for a CLI workspace named `dev` stored?"
+options = ["`terraform.tfstate`", "`terraform.tfstate.d/dev/terraform.tfstate`", "`dev.tfstate`", "`.terraform/dev/state`"]
+answer = 1
+obj = "6a"
+explain = "The default workspace uses `terraform.tfstate`. Others go under `terraform.tfstate.d/<name>/`."
+
+[[stages.questions]]
+type = "multi"
+q = "What are drawbacks of the local backend for teams? (choose 2)"
+options = [
+  "State isn't shared between team members",
+  "No locking across different machines",
+  "It can't store more than 10 resources",
+  "It doesn't support outputs",
+]
+answer = [0, 1]
+obj = "6a"
+explain = "Sharing and cross-machine locking are the big issues. There's no resource limit."
+
+[[stages.questions]]
+type = "single"
+q = "Which argument changes where the local backend writes state?"
+options = ["`file`", "`path`", "`location`", "`state_file`"]
+answer = 1
+obj = "6a"
+explain = "`backend \"local\" { path = \"...\" }`"
+
+[[stages]]
+id = "s2"
+title = "State locking"
+lesson = '''
+**Locking** stops two people (or pipelines) from writing the same state at the same time, which could corrupt it or lose changes.
+
+- Terraform **automatically** acquires a lock for any operation that could write state (`plan`, `apply`, `destroy`, `state` commands…)
+- If someone else holds the lock, your command fails (or waits, see `-lock-timeout`)
+- **Not all backends support locking.** Check the backend docs
+
+| Backend | Locking |
+|---|---|
+| local | ✅ OS file locks |
+| s3 | ✅ `use_lockfile = true` (native S3 locking, 1.10+); DynamoDB table (older, deprecated) |
+| azurerm | ✅ blob leases |
+| gcs | ✅ |
+| HCP Terraform | ✅ |
+| http | ✅ optional (`lock_address`) |
+
+### Useful flags & commands
+| | |
+|---|---|
+| `-lock-timeout=60s` | Wait up to 60s for the lock instead of failing immediately |
+| `-lock=false` | Don't lock (**dangerous**, avoid) |
+| `terraform force-unlock LOCK_ID` | Manually release a **stuck** lock (e.g. a crashed CI job) |
+
+> ⚠️ Only `force-unlock` when you're **sure** nobody is still running. You need the **lock ID** shown in the error message.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "What is the purpose of state locking?"
+options = [
+  "To encrypt state",
+  "To prevent concurrent operations from writing the same state and corrupting it",
+  "To stop people from reading outputs",
+  "To pin provider versions",
+]
+answer = 1
+obj = "6b"
+explain = "Locking serializes writes to state."
+
+[[stages.questions]]
+type = "fill"
+q = "A CI job crashed and left the state locked with ID `9db590f1`. Which command releases it? (full command)"
+answer = ["terraform force-unlock 9db590f1"]
+obj = "6b"
+explain = "`terraform force-unlock <LOCK_ID>`. Make sure nothing is really running first."
+
+[[stages.questions]]
+type = "single"
+q = "Do all backends support state locking?"
+options = ["Yes", "No, it depends on the backend", "Only remote backends do", "Only HCP Terraform does"]
+answer = 1
+obj = "6b"
+explain = "Most popular backends do, but you must check each backend's documentation."
+
+[[stages.questions]]
+type = "single"
+q = "You want `terraform apply` to wait up to 5 minutes for a lock held by a colleague instead of failing. Which flag?"
+options = ["`-lock=false`", "`-lock-timeout=5m`", "`-wait=5m`", "`-parallelism=5`"]
+answer = 1
+obj = "6b"
+explain = "`-lock-timeout` retries acquiring the lock for that duration."
+
+[[stages.questions]]
+type = "single"
+q = "Since Terraform 1.10, how can the S3 backend lock state without DynamoDB?"
+options = ["`use_lockfile = true`", "`lock = \"s3\"`", "`dynamodb_table = \"none\"`", "It can't"]
+answer = 0
+obj = "6b"
+explain = "`use_lockfile = true` uses an S3 lock object. The DynamoDB-based locking is deprecated."
+
+[[stages.questions]]
+type = "single"
+q = "Is it automatic, or do you have to request a lock before running `terraform apply`?"
+options = ["You must run `terraform lock` first", "It's automatic for operations that could write state", "Only with `-lock=true`", "Only in HCP Terraform"]
+answer = 1
+obj = "6b"
+explain = "Terraform locks automatically if the backend supports it."
+
+[[stages]]
+id = "s3"
+title = "Remote state with the backend block"
+lesson = '''
+```hcl
+terraform {
+  backend "s3" {
+    bucket       = "acme-terraform-state"
+    key          = "network/prod/terraform.tfstate"
+    region       = "eu-central-1"
+    encrypt      = true
+    use_lockfile = true
+  }
+}
+```
+
+### Rules for the `backend` block
+- Goes **inside the `terraform` block**; only **one** backend per configuration
+- **Cannot use variables, locals or data sources**: values must be literals
+- Missing values can be supplied at init time = **partial configuration**:
+  ```bash
+  terraform init -backend-config="bucket=acme-state" -backend-config=backend.hcl
+  ```
+  (great for keeping secrets out of code and reusing one config across environments)
+- After adding or changing a backend you **must** run `terraform init`
+  - `-migrate-state`: copy existing state to the new backend
+  - `-reconfigure`: start fresh and ignore the old state
+- Removing the backend block and running `init -migrate-state` moves state back to local
+- Can't be combined with a `cloud` block (HCP Terraform uses `cloud` instead)
+
+### Reading another configuration's state
+```hcl
+data "terraform_remote_state" "network" {
+  backend = "s3"
+  config = {
+    bucket = "acme-terraform-state"
+    key    = "network/prod/terraform.tfstate"
+    region = "eu-central-1"
+  }
+}
+# use: data.terraform_remote_state.network.outputs.vpc_id
+```
+Only the **root module outputs** of the other state are accessible. (The reader needs access to the whole state, so prefer purpose-built data sources or HCP Terraform's `tfe_outputs` when possible.)
+
+### This game runs a real backend!
+TerraQuest serves Terraform's **`http` backend** at `/tfstate/<name>`, with locking. You'll migrate state into it in the next lab.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "Can you use `var.bucket_name` inside a `backend \"s3\"` block?"
+options = ["Yes", "No; backend blocks can't use variables, so use partial configuration with `-backend-config` instead", "Only with `TF_VAR_`", "Only in HCP Terraform"]
+answer = 1
+obj = "6c"
+explain = "The backend is configured before variables are evaluated. Use `-backend-config` for dynamic values."
+
+[[stages.questions]]
+type = "single"
+q = "What is **partial backend configuration**?"
+options = [
+  "Storing half the state locally",
+  "Leaving some backend arguments out of the code and supplying them with `terraform init -backend-config=...`",
+  "Using two backends at once",
+  "A backend without locking",
+]
+answer = 1
+obj = "6c"
+explain = "It keeps secrets and environment-specific values out of the config."
+
+[[stages.questions]]
+type = "single"
+q = "You just added an S3 backend to a project that already has local state. What do you run to move the state?"
+options = ["`terraform apply`", "`terraform init -migrate-state`", "`terraform state push`", "`terraform init -reconfigure`"]
+answer = 1
+obj = "6c"
+explain = "`init` detects the backend change, and `-migrate-state` copies the state across."
+
+[[stages.questions]]
+type = "fill"
+q = "Which data source reads root-module outputs from another configuration's state?"
+answer = ["terraform_remote_state"]
+obj = "6c"
+explain = "`data \"terraform_remote_state\" \"x\" { backend = \"...\" config = { ... } }` → `.outputs.<name>`"
+
+[[stages.questions]]
+type = "single"
+q = "How many backend blocks can a configuration have?"
+options = ["One", "One per provider", "One per module", "Unlimited"]
+answer = 0
+obj = "6c"
+explain = "Exactly one backend (or one `cloud` block) per configuration."
+
+[[stages.questions]]
+type = "single"
+q = "From `data.terraform_remote_state.net`, which values can you read?"
+options = ["Any resource attribute in that state", "Only the root module outputs of that state", "Only variables", "Only data sources"]
+answer = 1
+obj = "6c"
+explain = "`.outputs.<name>`: root-level outputs only."
+
+[[stages]]
+id = "lab1"
+title = "Lab: Migrate to a remote backend"
+lesson = '''
+This project has been using **local state**. The setup already applied it. Move the state into the **game's HTTP backend** so your "team" can share it.
+
+The game's backend URL for this lab is shown in `backend.tf.example`.
+'''
+[stages.lab]
+goal = '''
+1. Look at the **`terraform.tfstate`** tab: that's the local state.
+2. Create **`backend.tf`** with a `terraform { backend "http" { ... } }` block, using the `address`, `lock_address` and `unlock_address` from `backend.tf.example`. (Copying the example is fine; the point is the migration.)
+3. Run `terraform init -migrate-state`. The lab adds `-force-copy` for you, because it can't answer the prompt.
+4. Watch the **Game's HTTP backend** panel: `team-app` now holds your resources. The local `terraform.tfstate` is emptied.
+5. Run `terraform plan`. It should report no changes, now reading from the remote backend.
+'''
+suggested = ["terraform state list", "terraform init -migrate-state", "terraform plan"]
+setup = ["terraform init", "terraform apply"]
+reset_backend = ["team-app"]
+backend_panel = true
+hints = [
+  "Rename isn't possible here, so use ＋ New file → `backend.tf`, and paste the example's content without the comment lines.",
+  "If init says the backend changed, the answer is exactly `terraform init -migrate-state`.",
+]
+[stages.lab.files]
+"main.tf" = '''
+terraform {
+  required_providers {
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+  }
+}
+
+resource "random_pet" "app" {
+  length = 2
+}
+
+resource "random_integer" "port" {
+  min = 8000
+  max = 8999
+}
+
+output "app" {
+  value = "${random_pet.app.id}:${random_integer.port.result}"
+}
+'''
+"backend.tf.example" = '''
+# Example backend config for TerraQuest's built-in HTTP backend.
+# Terraform ignores this file (wrong extension). Create backend.tf with this content:
+terraform {
+  backend "http" {
+    address        = "{{BASE_URL}}/tfstate/team-app"
+    lock_address   = "{{BASE_URL}}/tfstate/team-app"
+    unlock_address = "{{BASE_URL}}/tfstate/team-app"
+  }
+}
+'''
+[[stages.lab.checks]]
+type = "config_regex"
+pattern = 'backend\s+"http"'
+msg = "`backend \"http\"` is configured in a `.tf` file"
+[[stages.lab.checks]]
+type = "backend_state"
+name = "team-app"
+min_resources = 2
+msg = "The game's backend holds state `team-app` with your resources"
+[[stages.lab.checks]]
+type = "snapshot_same"
+was = "random_pet.app"
+address = "random_pet.app"
+attr = "id"
+msg = "Same pet as before, so state was migrated, not re-created"
+[[stages.lab.checks]]
+type = "no_local_state"
+msg = "Local `terraform.tfstate` no longer holds resources"
+[[stages.lab.checks]]
+type = "no_changes"
+msg = "`terraform plan` shows no changes"
+
+[[stages]]
+id = "lab2"
+title = "Lab: Who's holding the lock?"
+lesson = '''
+Your state lives in the game's HTTP backend (state name `locked-app`). A teammate's CI job crashed in the middle of an apply and left the state **locked**.
+'''
+[stages.lab]
+goal = '''
+1. Click the event **"Teammate's CI job crashes mid-apply"**. Watch the backend panel show 🔒.
+2. Change the `content` of `local_file.motd` to **`Welcome v2`** and try `terraform apply`. It fails with a lock error. Read it and find the **lock ID**.
+3. You've confirmed with the teammate that nothing is running. Release the lock: `terraform force-unlock <LOCK_ID>` (the lab adds `-force`).
+4. `terraform apply` again and **Check my work**.
+'''
+suggested = ["terraform plan", "terraform apply", "terraform force-unlock <LOCK_ID>"]
+setup = ["terraform init", "terraform apply"]
+reset_backend = ["locked-app"]
+backend_panel = true
+hints = [
+  "The error shows a `Lock Info:` block whose first line is `ID: c0ffee00-…`. Copy that ID.",
+  "`terraform force-unlock c0ffee00-dead-beef-0000-123456789abc`",
+]
+[[stages.lab.actions]]
+id = "crash"
+label = "Teammate's CI job crashes mid-apply"
+type = "backend_lock"
+name = "locked-app"
+[stages.lab.files]
+"main.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+  backend "http" {
+    address        = "{{BASE_URL}}/tfstate/locked-app"
+    lock_address   = "{{BASE_URL}}/tfstate/locked-app"
+    unlock_address = "{{BASE_URL}}/tfstate/locked-app"
+  }
+}
+
+resource "local_file" "motd" {
+  filename = "motd.txt"
+  content  = "Welcome v1"
+}
+'''
+[[stages.lab.checks]]
+type = "history"
+pattern = 'terraform force-unlock'
+msg = "You used `terraform force-unlock`"
+[[stages.lab.checks]]
+type = "backend_unlocked"
+name = "locked-app"
+msg = "State `locked-app` is unlocked"
+[[stages.lab.checks]]
+type = "attr"
+address = "local_file.motd"
+attr = "content"
+equals = "Welcome v2"
+msg = "`motd.txt` was updated to `Welcome v2`"
+
+[[stages]]
+id = "s4"
+title = "Drift & keeping state accurate"
+lesson = '''
+**Drift** = real infrastructure differs from what's in state and config, usually because someone changed it outside Terraform.
+
+### How Terraform detects drift
+Every `plan`/`apply` starts with a **refresh**: it asks providers for the current real values and compares them to the configuration.
+
+### Handling drift: two directions
+| You want to… | Do this |
+|---|---|
+| **Undo** the manual change (config is right) | `terraform apply`: Terraform changes reality back to match config |
+| **Accept** the manual change (reality is right) | Update your configuration to match, then apply. Or `terraform apply -refresh-only` to just record the new values in state |
+
+### `-refresh-only` mode
+- `terraform plan -refresh-only`: shows how **state** would change to match reality, without proposing infrastructure changes
+- `terraform apply -refresh-only`: writes those updates to state (after approval)
+- Replaces the old `terraform refresh` command, which is deprecated because it updated state without review
+
+### Other state-correction tools
+- `terraform apply -replace=ADDR`: re-create something that's broken but looks fine to Terraform
+- `terraform import` / `import` block: bring an existing object under management
+- `terraform state rm` / `removed` block: stop managing something without destroying it
+- `terraform state mv` / `moved` block: rename or move resources in state
+- `lifecycle { ignore_changes = [...] }`: deliberately tolerate certain drift
+
+> In this lab, the `local_file` resource treats a hand-edited file as *gone*: the refresh sees that the content no longer matches and plans to re-create it. Cloud resources usually show `~ update in-place` instead.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "Someone manually changed an instance type in the console. You want to keep the manual change. What's the best approach?"
+options = [
+  "Run `terraform apply`, which keeps manual changes",
+  "Update the configuration to match the new value, then plan and apply (no changes expected)",
+  "Delete the state file",
+  "Run `terraform destroy`",
+]
+answer = 1
+obj = "6d"
+explain = "Make config match reality, otherwise the next apply will revert it."
+
+[[stages.questions]]
+type = "single"
+q = "What does `terraform plan -refresh-only` show?"
+options = [
+  "Infrastructure changes needed to match config",
+  "How state would be updated to match real-world infrastructure, without changing any infrastructure",
+  "Only resources that failed",
+  "The dependency graph",
+]
+answer = 1
+obj = "6d"
+explain = "Refresh-only plans reconcile **state** with reality."
+
+[[stages.questions]]
+type = "single"
+q = "Which command is deprecated in favor of `terraform apply -refresh-only`?"
+options = ["`terraform taint`", "`terraform refresh`", "`terraform state pull`", "`terraform get`"]
+answer = 1
+obj = "6d"
+explain = "`terraform refresh` updated state with no review step. `-refresh-only` lets you review first."
+
+[[stages.questions]]
+type = "single"
+q = "Drift happened, and the configuration is correct. What restores the intended state?"
+options = ["`terraform apply`", "`terraform apply -refresh-only`", "`terraform state rm`", "`terraform fmt`"]
+answer = 0
+obj = "6d"
+explain = "A normal apply changes reality back to match the configuration."
+
+[[stages.questions]]
+type = "single"
+q = "At what point in a normal `terraform plan` does Terraform detect drift?"
+options = ["It never does", "During the refresh at the start of the plan", "Only during `terraform validate`", "Only after apply"]
+answer = 1
+obj = "6d"
+explain = "Plan refreshes state from the real infrastructure first (unless `-refresh=false`)."
+
+[[stages]]
+id = "lab3"
+title = "Lab: Drift hunter"
+lesson = '''
+`config.txt` is managed by Terraform with `max_connections=100`. Someone is about to "quickly fix" it by hand…
+'''
+[stages.lab]
+goal = '''
+1. Click the event **"Ops hot-fixes config.txt by hand"**. Open the `config.txt` tab and see the change.
+2. Run `terraform plan -refresh-only` to see how state differs from reality.
+3. The config is correct and the hot-fix must go. Run `terraform apply` to restore it.
+4. Confirm `terraform plan` is clean, then **Check my work**.
+'''
+suggested = ["terraform plan -refresh-only", "terraform plan", "terraform apply"]
+setup = ["terraform init", "terraform apply"]
+hints = ["A normal `terraform apply` puts reality back to what the configuration says."]
+[[stages.lab.actions]]
+id = "hotfix"
+label = "Ops hot-fixes config.txt by hand"
+type = "write_file"
+path = "config.txt"
+content = "max_connections=999\n# edited by hand at 3am\n"
+[stages.lab.files]
+"main.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+
+resource "local_file" "config" {
+  filename = "config.txt"
+  content  = "max_connections=100\n"
+}
+'''
+[[stages.lab.checks]]
+type = "history"
+pattern = 'plan .*-refresh-only|plan -refresh-only'
+msg = "You inspected the drift with `terraform plan -refresh-only`"
+[[stages.lab.checks]]
+type = "file_regex"
+path = "config.txt"
+pattern = '\Amax_connections=100\n\Z'
+msg = "`config.txt` is back to `max_connections=100`"
+[[stages.lab.checks]]
+type = "no_changes"
+msg = "`terraform plan` is clean"
+
+[[stages]]
+id = "s5"
+title = "CLI workspaces"
+lesson = '''
+**CLI workspaces** let one configuration keep **multiple separate states** in the same backend.
+
+```bash
+terraform workspace list          # * marks the current one
+terraform workspace new dev       # create and switch
+terraform workspace select prod   # switch
+terraform workspace show          # print current name
+terraform workspace delete dev    # delete (must be empty, and not the current one)
+```
+
+- Every backend starts with the **`default`** workspace, which **cannot be deleted**
+- Reference the current name in config: **`terraform.workspace`**
+  ```hcl
+  resource "aws_instance" "web" {
+    instance_type = terraform.workspace == "prod" ? "m5.large" : "t3.micro"
+    tags = { Env = terraform.workspace }
+  }
+  ```
+- Local backend: `terraform.tfstate.d/<name>/terraform.tfstate`
+- `TF_WORKSPACE=prod` env var selects a workspace (handy in CI)
+
+### When to use them
+Good for quick parallel copies (testing a feature branch). HashiCorp **doesn't** recommend CLI workspaces as the main way to separate environments with different credentials or access controls. Use separate configurations/backends, or HCP Terraform workspaces.
+
+> ⚠️ **HCP Terraform workspaces are different!** An HCP Terraform workspace is a full unit with its own state, variables, permissions and run history. More in the HCP Terraform world.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "What is the name of the workspace every backend starts with?"
+options = ["`main`", "`default`", "`prod`", "`root`"]
+answer = 1
+obj = "6a"
+explain = "`default`, and it can't be deleted."
+
+[[stages.questions]]
+type = "fill"
+q = "Which expression returns the current workspace name inside configuration?"
+answer = ["terraform.workspace"]
+obj = "6a"
+explain = "`terraform.workspace`"
+
+[[stages.questions]]
+type = "single"
+q = "What does `terraform workspace new staging` do?"
+options = [
+  "Copies the current state into staging",
+  "Creates an empty workspace named staging and switches to it",
+  "Creates a new folder",
+  "Creates an HCP Terraform workspace",
+]
+answer = 1
+obj = "6a"
+explain = "New workspaces start with empty state, and you're switched to them."
+
+[[stages.questions]]
+type = "single"
+q = "Are CLI workspaces recommended for isolating environments that need different credentials and access controls?"
+options = [
+  "Yes, that's their main purpose",
+  "No; use separate configurations/backends or HCP Terraform workspaces for strong isolation",
+  "Only with the S3 backend",
+  "Only for prod",
+]
+answer = 1
+obj = "6a"
+explain = "CLI workspaces share the same backend and credentials, so the isolation is weak."
+
+[[stages]]
+id = "lab4"
+title = "Lab: Parallel worlds (workspaces)"
+lesson = '''
+One configuration, two isolated states. The config uses `terraform.workspace` to name its file.
+'''
+[stages.lab]
+goal = '''
+1. `terraform init`, then `terraform workspace show`, which prints `default`.
+2. Create a **`dev`** workspace and apply.
+3. Create a **`prod`** workspace and apply. Notice it plans a create again: separate state!
+4. Run `terraform workspace list`, then look at the `terraform.tfstate.d` folder in your lab directory.
+'''
+suggested = ["terraform init", "terraform workspace show", "terraform workspace new dev", "terraform workspace new prod", "terraform workspace select dev", "terraform workspace list", "terraform apply"]
+hints = ["`terraform workspace new dev` creates and switches; then `terraform apply`. Repeat for prod."]
+[stages.lab.files]
+"main.tf" = '''
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+  }
+}
+
+resource "local_file" "env" {
+  filename = "${terraform.workspace}.txt"
+  content  = "This is the ${terraform.workspace} environment (size: ${terraform.workspace == "prod" ? "large" : "small"})\n"
+}
+'''
+[[stages.lab.checks]]
+type = "workspace_exists"
+name = "dev"
+msg = "Workspace `dev` exists"
+[[stages.lab.checks]]
+type = "workspace_exists"
+name = "prod"
+msg = "Workspace `prod` exists"
+[[stages.lab.checks]]
+type = "workspace_resource"
+workspace = "dev"
+msg = "`dev` has its own state with resources"
+[[stages.lab.checks]]
+type = "workspace_resource"
+workspace = "prod"
+msg = "`prod` has its own state with resources"
+[[stages.lab.checks]]
+type = "file_contains"
+path = "prod.txt"
+text = "size: large"
+msg = "`prod.txt` says `size: large`"
+
+[[stages]]
+id = "boss"
+title = "Boss: The State Leviathan"
+boss = true
+lesson = "The Leviathan guards the state file. Backends, locks, drift, workspaces. 80% to pass."
+
+[[stages.questions]]
+type = "single"
+q = "Two engineers run `terraform apply` at the same moment against an S3 backend with locking enabled. What happens?"
+options = [
+  "Both applies run and the last write wins",
+  "One acquires the lock; the other fails with a lock error (or waits if `-lock-timeout` is set)",
+  "Terraform merges the two plans",
+  "The state is corrupted",
+]
+answer = 1
+obj = "6b"
+explain = "That's exactly what locking prevents."
+
+[[stages.questions]]
+type = "single"
+q = "Your backend block has `bucket = var.state_bucket`. What happens on `terraform init`?"
+options = ["It works", "Error: variables are not allowed in backend configuration", "It prompts for the bucket", "It falls back to local"]
+answer = 1
+obj = "6c"
+explain = "Use `-backend-config=\"bucket=...\"` instead."
+
+[[stages.questions]]
+type = "single"
+q = "You want to move from an S3 backend back to local state. What do you do?"
+options = [
+  "Delete the S3 bucket",
+  "Remove the backend block and run `terraform init -migrate-state`",
+  "`terraform state pull > terraform.tfstate` is the only way",
+  "It's impossible",
+]
+answer = 1
+obj = "6c"
+explain = "Removing the backend means local, and `init -migrate-state` copies the state back."
+
+[[stages.questions]]
+type = "single"
+q = "A colleague tagged resources by hand. You want those tag values recorded in state, but you don't want any infrastructure changes. Which command?"
+options = ["`terraform apply`", "`terraform apply -refresh-only`", "`terraform import`", "`terraform state push`"]
+answer = 1
+obj = "6d"
+explain = "Refresh-only updates state to match reality. (Update the config too, or the next apply reverts the tags.)"
+
+[[stages.questions]]
+type = "single"
+q = "Which statement about `terraform force-unlock` is TRUE?"
+options = [
+  "It runs automatically after every apply",
+  "It requires the lock ID and should only be used when you're sure no operation is running",
+  "It deletes the state",
+  "It only works with the local backend",
+]
+answer = 1
+obj = "6b"
+explain = "Forcing an unlock while someone is applying risks corrupting state."
+
+[[stages.questions]]
+type = "single"
+q = "Which file would hold the state of a CLI workspace `qa` with the local backend?"
+options = ["`qa.tfstate`", "`terraform.tfstate.d/qa/terraform.tfstate`", "`.terraform/qa.tfstate`", "`terraform.tfstate` (shared)"]
+answer = 1
+obj = "6a"
+explain = "Non-default workspaces go under `terraform.tfstate.d/`."
+
+[[stages.questions]]
+type = "multi"
+q = "Which commands can detect drift? (choose 2)"
+options = ["`terraform plan`", "`terraform plan -refresh-only`", "`terraform fmt`", "`terraform validate`"]
+answer = [0, 1]
+obj = "6d"
+explain = "Both refresh against real infrastructure. fmt and validate never contact providers."
+
+[[stages.questions]]
+type = "single"
+q = "`terraform init -backend-config=prod.s3.hcl` is an example of:"
+options = ["State migration", "Partial backend configuration", "Workspace selection", "Module installation"]
+answer = 1
+obj = "6c"
+explain = "Supplying backend settings outside the `backend` block."
+
+[[stages.questions]]
+type = "single"
+q = "Why is storing state in a remote backend with encryption recommended?"
+options = [
+  "State may contain secrets in plain text",
+  "Encrypted state makes plans faster",
+  "Terraform refuses to run otherwise",
+  "It removes the need for locking",
+]
+answer = 0
+obj = "6c"
+explain = "State can contain passwords, keys and so on. Protect it."

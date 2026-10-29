@@ -1,0 +1,381 @@
+id = "w1"
+order = 1
+title = "IaC Foundations"
+subtitle = "Why Infrastructure as Code exists, and how Terraform handles many clouds and services."
+objective = "Objective 1 · Infrastructure as Code"
+objective_code = "1"
+icon = "🏛️"
+
+[[stages]]
+id = "s1"
+title = "What is Infrastructure as Code?"
+lesson = '''
+**Infrastructure as Code (IaC)** means managing infrastructure through **machine-readable definition files** instead of clicking through web consoles or running one-off scripts by hand.
+
+### Before IaC
+- Someone logs into a console and clicks "Create VM"
+- Settings live in someone's head (or a wiki page that's out of date)
+- Rebuilding the same environment twice gives slightly different results
+
+### With IaC
+- The infrastructure is described in files, stored in **version control** (Git)
+- Changes go through code review, like application code
+- The same files build the same infrastructure every time
+
+### Declarative vs imperative
+
+| Declarative (Terraform) | Imperative (scripts) |
+|---|---|
+| Describe the **end state**: "3 web servers" | Describe the **steps**: "create a server, then another…" |
+| The tool figures out the steps | You handle every step and edge case |
+| Running it again changes nothing if already correct (**idempotent**) | Running it again might create 3 more servers |
+
+Terraform is **declarative**. You declare the desired state; Terraform computes a plan to reach it.
+
+### Mutable vs immutable infrastructure
+- **Mutable**: patch and change servers in place over time, which leads to *configuration drift*
+- **Immutable**: never change a server, replace it with a new one built from a known definition
+
+Terraform naturally supports the immutable approach: when certain arguments change, it replaces the resource.
+
+> 📝 **Exam tip:** know these words: *declarative*, *idempotent*, *version control*, *drift*, *immutable*.
+'''
+
+[[stages.questions]]
+type = "single"
+q = "Which best describes Infrastructure as Code?"
+options = [
+  "Writing infrastructure documentation in Markdown",
+  "Managing and provisioning infrastructure through machine-readable definition files",
+  "Running infrastructure on code-hosting platforms like GitHub",
+  "Using a GUI to generate infrastructure diagrams",
+]
+answer = 1
+obj = "1a"
+explain = "IaC = defining infrastructure in code/config files that tools can read and act on."
+
+[[stages.questions]]
+type = "single"
+q = "Terraform's configuration language is best described as:"
+options = ["Imperative", "Declarative", "Procedural", "Object-oriented"]
+answer = 1
+obj = "1a"
+explain = "You describe the **desired end state** and Terraform works out the steps. That's declarative."
+
+[[stages.questions]]
+type = "single"
+q = "Running `terraform apply` twice in a row on an unchanged config, where nothing changed outside Terraform, results in:"
+options = [
+  "Duplicate resources being created",
+  "No changes the second time",
+  "An error saying resources already exist",
+  "All resources being re-created",
+]
+answer = 1
+obj = "1a"
+explain = "Terraform is **idempotent**: if reality already matches the configuration, there's nothing to do."
+
+[[stages.questions]]
+type = "single"
+q = "What is **configuration drift**?"
+options = [
+  "When a provider releases a new version",
+  "When real infrastructure no longer matches its defined configuration, often after manual changes",
+  "When Terraform files are moved between folders",
+  "Slow network performance between regions",
+]
+answer = 1
+obj = "1a"
+explain = "Drift happens when someone changes infrastructure outside the IaC workflow, so reality and code disagree."
+
+[[stages.questions]]
+type = "single"
+q = "In an **immutable** infrastructure approach, how do you update a server's configuration?"
+options = [
+  "SSH in and edit files",
+  "Replace the server with a new one built from the updated definition",
+  "Run a patch script nightly",
+  "Restart it with new kernel parameters",
+]
+answer = 1
+obj = "1a"
+explain = "Immutable infrastructure replaces rather than modifies, which avoids drift and snowflake servers."
+
+[[stages]]
+id = "s2"
+title = "Why IaC? The advantages"
+lesson = '''
+Expect the exam to ask "which of these is a benefit of IaC?" Here's the list to know:
+
+- **Version control:** every change is tracked in Git: who, what, when, why. You can roll back.
+- **Collaboration & review:** changes go through pull requests and code review.
+- **Consistency / repeatability:** the same code produces the same environment (dev, staging and prod can match).
+- **Automation & speed:** provision in minutes; plug into CI/CD pipelines.
+- **Reduced human error:** no forgotten checkbox in a console.
+- **Self-documenting:** the code *is* the documentation of what exists.
+- **Reusability:** package patterns as **modules** and share them.
+- **Safety:** a **plan** shows exactly what will change *before* it happens.
+- **Cost and lifecycle control:** easily destroy temporary environments; know exactly what exists.
+
+### Things IaC is **not**
+- It does not remove the need to understand the platform you're deploying to.
+- It is not automatically secure: secrets in code or state still need care.
+- Terraform is not a configuration-management tool for software *inside* servers (that's Ansible, Chef, Puppet). It can call them, but its sweet spot is **provisioning**.
+
+> 📝 **Exam tip:** "Terraform can manage infrastructure on multiple platforms with one workflow" and "the plan lets you review changes before applying" are classic correct answers.
+'''
+
+[[stages.questions]]
+type = "multi"
+q = "Which are advantages of IaC? (choose 3)"
+options = [
+  "Changes can be reviewed and tracked in version control",
+  "Environments can be reproduced consistently",
+  "It eliminates the need to understand the underlying platform",
+  "Provisioning can be automated in CI/CD pipelines",
+  "Secrets are automatically encrypted in all files",
+]
+answer = [0, 1, 3]
+obj = "1b"
+explain = "Version control, consistency and automation are core benefits. IaC doesn't replace platform knowledge or secure secrets for you."
+
+[[stages.questions]]
+type = "single"
+q = "How does IaC reduce the risk of human error?"
+options = [
+  "It prevents anyone from making changes",
+  "Infrastructure is defined once in code and applied the same way every time, with a reviewable plan",
+  "It automatically fixes bugs in application code",
+  "It requires two people to log in to the console",
+]
+answer = 1
+obj = "1b"
+explain = "Codified, repeatable definitions plus a reviewable plan remove manual, error-prone steps."
+
+[[stages.questions]]
+type = "single"
+q = "Your team wants dev, staging and prod to be nearly identical. Which IaC benefit addresses this most directly?"
+options = ["Self-service portals", "Consistency and repeatability from the same code", "Faster SSH access", "Lower cloud prices"]
+answer = 1
+obj = "1b"
+explain = "The same configuration (with different variables) builds matching environments."
+
+[[stages.questions]]
+type = "single"
+q = "Which tool category is Terraform **primarily** in?"
+options = [
+  "Configuration management (installing packages inside servers)",
+  "Infrastructure provisioning / orchestration",
+  "Container runtime",
+  "Log aggregation",
+]
+answer = 1
+obj = "1b"
+explain = "Terraform provisions and manages the lifecycle of infrastructure resources. Tools like Ansible focus on configuring software inside machines."
+
+[[stages.questions]]
+type = "single"
+q = "Before applying, how can a team see exactly what Terraform will change?"
+options = ["Read the provider's changelog", "Run `terraform plan` and review the output", "Check the state file's timestamp", "Run `terraform fmt`"]
+answer = 1
+obj = "1b"
+explain = "The **execution plan** is a key safety benefit: review first, then apply."
+
+[[stages.questions]]
+type = "single"
+q = "Which benefit comes from storing infrastructure code in Git?"
+options = [
+  "Automatic cost reduction",
+  "Audit history and the ability to roll back to a previous known-good version",
+  "Faster network speeds",
+  "Terraform runs without state",
+]
+answer = 1
+obj = "1b"
+explain = "Version control gives history, blame/audit, review and rollback."
+
+[[stages]]
+id = "s3"
+title = "Multi-cloud, hybrid & service-agnostic"
+lesson = '''
+One of Terraform's biggest selling points: **one tool, one language, one workflow** for almost any platform.
+
+### How?
+Terraform core doesn't know anything about AWS or GitHub. **Providers** do. There are thousands of them in the **Terraform Registry** (`registry.terraform.io`):
+
+- Cloud: `aws`, `azurerm`, `google`, `oci`…
+- Platforms: `kubernetes`, `helm`, `vsphere` (on-prem)
+- SaaS / services: `github`, `datadog`, `cloudflare`, `pagerduty`, `okta`
+- Utility: `random`, `local`, `null`, `http`, `tls`, `time`
+
+So you can:
+- **Multi-cloud:** deploy to AWS *and* Azure in the same workflow, even the same configuration
+- **Hybrid cloud:** manage on-prem (vSphere) and cloud together
+- **Service-agnostic:** wire a cloud load balancer to a Cloudflare DNS record and a Datadog monitor, all in one plan
+
+### Important nuance
+Terraform does **not** give you one universal "virtual machine" resource that works on every cloud. You still write `aws_instance` for AWS and `azurerm_linux_virtual_machine` for Azure. What's shared is the **language, workflow, state and tooling**, not the resource definitions.
+
+### Why it matters
+- One skill set for the whole team
+- Dependencies **across** providers are handled automatically (Terraform builds a single dependency graph)
+- Reduced vendor lock-in at the *tooling* level
+'''
+
+[[stages.questions]]
+type = "single"
+q = "How does Terraform support many different platforms?"
+options = [
+  "Terraform core contains built-in code for every cloud",
+  "Through provider plugins that implement each platform's API",
+  "By converting configs to each cloud's native template format",
+  "It only supports AWS, Azure and GCP",
+]
+answer = 1
+obj = "1c"
+explain = "Providers are plugins; Terraform core handles the language, graph, plan and state."
+
+[[stages.questions]]
+type = "single"
+q = "Which statement about multi-cloud with Terraform is TRUE?"
+options = [
+  "The same `vm` resource works on every cloud without changes",
+  "You use the same workflow and language, but each cloud has its own resource types",
+  "You need a separate Terraform installation per cloud",
+  "Multi-cloud requires HCP Terraform",
+]
+answer = 1
+obj = "1c"
+explain = "The workflow and HCL are shared; resource types are provider-specific (`aws_instance` vs `google_compute_instance`)."
+
+[[stages.questions]]
+type = "single"
+q = "A config creates an AWS load balancer and a Cloudflare DNS record pointing to it. What does Terraform do with the dependency between them?"
+options = [
+  "Nothing; you must run two separate applies",
+  "It builds one dependency graph across providers and creates the load balancer first",
+  "It creates both at the same time and retries on failure",
+  "It refuses because providers can't reference each other",
+]
+answer = 1
+obj = "1c"
+explain = "References across providers create graph edges just like within one provider."
+
+[[stages.questions]]
+type = "single"
+q = "Where are publicly available providers primarily published?"
+options = ["Docker Hub", "The Terraform Registry", "PyPI", "GitHub Marketplace"]
+answer = 1
+obj = "1c"
+explain = "The public **Terraform Registry** hosts providers and modules."
+
+[[stages.questions]]
+type = "single"
+q = "\"Hybrid cloud\" with Terraform most likely means:"
+options = [
+  "Running Terraform on two laptops",
+  "Managing on-premises infrastructure (e.g. VMware vSphere) and public cloud with the same tool",
+  "Using both HCL and JSON syntax",
+  "Mixing Terraform and CloudFormation state",
+]
+answer = 1
+obj = "1c"
+explain = "Hybrid = on-prem + cloud. Terraform has providers for both."
+
+[[stages.questions]]
+type = "multi"
+q = "Which of these can Terraform manage through providers? (choose 3)"
+options = ["GitHub repositories and teams", "Kubernetes resources", "DNS records at Cloudflare", "The CPU microcode of your laptop"]
+answer = [0, 1, 2]
+obj = "1c"
+explain = "Terraform is service-agnostic: anything with an API and a provider. Firmware on your laptop isn't one of them."
+
+[[stages]]
+id = "boss"
+title = "Boss: The Architect"
+boss = true
+lesson = "The Architect quizzes you on IaC concepts and Terraform's multi-platform approach. 80% to pass."
+
+[[stages.questions]]
+type = "single"
+q = "A colleague runs a shell script that creates 3 VMs each time it runs. Running it twice leaves 6 VMs. What property does this script lack that Terraform has?"
+options = ["Portability", "Idempotency", "Encryption", "Concurrency"]
+answer = 1
+obj = "1a"
+explain = "Idempotent operations produce the same result no matter how many times they run."
+
+[[stages.questions]]
+type = "single"
+q = "Which is NOT a typical benefit of IaC?"
+options = [
+  "Reusable modules",
+  "Infrastructure changes can be peer-reviewed",
+  "Guaranteed zero cloud cost",
+  "Repeatable environments",
+]
+answer = 2
+obj = "1b"
+explain = "IaC can help *control* cost (e.g. destroying unused environments) but guarantees nothing about cost."
+
+[[stages.questions]]
+type = "single"
+q = "What lets Terraform manage resources from different vendors in a single run?"
+options = ["Workspaces", "Multiple providers in the same configuration", "The `-parallelism` flag", "Remote state"]
+answer = 1
+obj = "1c"
+explain = "Declare multiple providers and Terraform builds a single graph across all of them."
+
+[[stages.questions]]
+type = "multi"
+q = "Which words describe Terraform's approach? (choose 2)"
+options = ["Declarative", "Imperative", "Idempotent", "Interpreted shell scripting"]
+answer = [0, 2]
+obj = "1a"
+explain = "Declarative and idempotent."
+
+[[stages.questions]]
+type = "single"
+q = "Someone fixes a production issue by changing a firewall rule in the cloud console. What IaC problem does this create?"
+options = ["Provider lock-in", "Configuration drift", "Module versioning conflicts", "State locking"]
+answer = 1
+obj = "1a"
+explain = "Manual out-of-band changes cause drift between code and reality. Terraform will detect it on the next plan."
+
+[[stages.questions]]
+type = "single"
+q = "Why is IaC described as \"self-documenting\"?"
+options = [
+  "Terraform automatically writes a wiki",
+  "The configuration files themselves describe what infrastructure exists and how it's set up",
+  "Providers generate PDF reports",
+  "Comments are required in every block",
+]
+answer = 1
+obj = "1b"
+explain = "Reading the code tells you exactly what's deployed. No separate (and stale) document is needed."
+
+[[stages.questions]]
+type = "single"
+q = "Which statement about Terraform and vendor lock-in is most accurate?"
+options = [
+  "Terraform makes cloud resources fully portable between providers automatically",
+  "Terraform reduces tooling lock-in because one workflow works across providers, but resources are still provider-specific",
+  "Terraform only works with HashiCorp's own cloud",
+  "Terraform increases lock-in because state is proprietary",
+]
+answer = 1
+obj = "1c"
+explain = "Skills and workflow are portable; the resource definitions are not."
+
+[[stages.questions]]
+type = "single"
+q = "Which of these is the BEST example of a service-agnostic workflow?"
+options = [
+  "Using the AWS CLI for EC2 and the Azure portal for VMs",
+  "One Terraform config that creates a cloud VM, a DNS record at a DNS provider, and a monitoring alert at a SaaS vendor",
+  "Writing separate scripts per vendor",
+  "Exporting cloud resources to CSV",
+]
+answer = 1
+obj = "1c"
+explain = "Different services, one tool, one plan, one dependency graph."

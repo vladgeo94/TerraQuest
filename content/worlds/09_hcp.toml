@@ -1,0 +1,524 @@
+id = "w9"
+order = 9
+title = "HCP Terraform"
+subtitle = "Remote runs, workspaces and projects, governance with policies, and the cloud block."
+objective = "Objective 8 · HCP Terraform"
+objective_code = "8"
+icon = "☁️"
+
+[[stages]]
+id = "s1"
+title = "Creating infrastructure with HCP Terraform"
+lesson = '''
+**HCP Terraform** (formerly *Terraform Cloud*) is HashiCorp's SaaS platform for running Terraform as a team, at `app.terraform.io`. **Terraform Enterprise** is the self-hosted edition with largely the same features.
+
+### What it gives you
+- **Remote state** storage with locking, versioning and encryption
+- **Remote runs**: plans and applies execute on HCP Terraform's workers, not your laptop
+- A UI with run history, logs and approvals
+- Variables (including sensitive ones), team access control, policies, private registry…
+
+### Three ways to trigger runs (workflows)
+| Workflow | How runs start |
+|---|---|
+| **VCS-driven** | Connect a workspace to a Git repo. Pushes to the branch queue plan+apply; **pull requests get speculative plans** |
+| **CLI-driven** | Add a `cloud` block, run `terraform plan`/`apply` locally; the run executes remotely and streams output to your terminal |
+| **API-driven** | Your own tooling uploads configuration versions and creates runs through the API |
+
+### Anatomy of a run
+1. **Plan** (queued → planning)
+2. **Cost estimation** (for supported resources, where enabled)
+3. **Policy checks** (Sentinel / OPA)
+4. **Run tasks** (third-party integrations can hook into stages)
+5. **Apply**: requires **confirmation** in the UI unless the workspace has **auto-apply** enabled
+
+**Speculative plans** are plan-only runs that can't be applied. They're used for PRs and for `terraform plan` from the CLI.
+
+### Execution modes (per workspace)
+| Mode | Where Terraform runs | State |
+|---|---|---|
+| **Remote** (default) | HCP Terraform workers | HCP Terraform |
+| **Local** | Your machine | HCP Terraform (used only as a state backend) |
+| **Agent** | Your self-hosted **HCP Terraform agents** (e.g. inside a private network) | HCP Terraform |
+
+> 🧪 **Want hands-on?** Create a free account at app.terraform.io, run `terraform login` in your own terminal, then add a `cloud` block to any lab config from earlier worlds and run `terraform init`. (Labs here can't run `terraform login` for you.)
+'''
+
+[[stages.questions]]
+type = "single"
+q = "What is HCP Terraform?"
+options = [
+  "A Terraform provider for HashiCorp products",
+  "HashiCorp's managed SaaS platform for remote runs, state, collaboration and governance",
+  "The new name of the Terraform CLI",
+  "A Kubernetes operator",
+]
+answer = 1
+obj = "8a"
+explain = "HCP Terraform (formerly Terraform Cloud) is the hosted platform. Terraform Enterprise is the self-hosted version."
+
+[[stages.questions]]
+type = "single"
+q = "In the VCS-driven workflow, what happens when a pull request is opened against the connected branch?"
+options = [
+  "The changes are applied immediately",
+  "HCP Terraform runs a speculative plan and reports the result on the PR",
+  "Nothing until merge",
+  "The workspace is locked",
+]
+answer = 1
+obj = "8a"
+explain = "Speculative plans show reviewers the impact of the change. Merging triggers a real run."
+
+[[stages.questions]]
+type = "single"
+q = "Which execution mode runs Terraform on your own infrastructure (e.g. in a private network) while HCP Terraform orchestrates the runs?"
+options = ["Remote", "Local", "Agent", "Speculative"]
+answer = 2
+obj = "8a"
+explain = "Agent mode uses self-hosted HCP Terraform agents."
+
+[[stages.questions]]
+type = "single"
+q = "A workspace uses **local** execution mode. What does HCP Terraform do for it?"
+options = ["Runs plans remotely", "Stores state only; Terraform runs on your machine", "Nothing at all", "Runs policies only"]
+answer = 1
+obj = "8a"
+explain = "Local mode means HCP Terraform acts as the state backend only."
+
+[[stages.questions]]
+type = "single"
+q = "By default, after a successful plan in a VCS-driven workspace, what is needed before apply?"
+options = ["Nothing; it auto-applies", "A user with permission must confirm the apply, unless auto-apply is enabled", "Running `terraform apply` locally", "An admin must restart the workspace"]
+answer = 1
+obj = "8a"
+explain = "Applies need manual confirmation by default. Auto-apply is a workspace setting."
+
+[[stages.questions]]
+type = "single"
+q = "With the CLI-driven workflow and remote execution, where does `terraform apply` actually execute?"
+options = ["On your laptop", "On HCP Terraform's infrastructure, streaming output back to your terminal", "On GitHub Actions", "Nowhere; CLI-driven only stores state"]
+answer = 1
+obj = "8a"
+explain = "Your CLI uploads the configuration and the run happens remotely."
+
+[[stages.questions]]
+type = "multi"
+q = "Which are the three workflow types for starting runs in HCP Terraform? (choose 3)"
+options = ["VCS-driven", "CLI-driven", "API-driven", "Email-driven", "Cron-driven only"]
+answer = [0, 1, 2]
+obj = "8a"
+explain = "VCS, CLI and API."
+
+[[stages]]
+id = "s2"
+title = "Collaboration & governance"
+lesson = '''
+### Collaboration
+- **Organizations** contain everything: projects, workspaces, teams, registry, policies
+- **Teams & permissions:** users belong to teams; teams get permissions at the organization, **project** or workspace level
+  - Workspace permission levels: **Read**, **Plan**, **Write**, **Admin** (plus custom permissions)
+  - The **owners** team has full control of the organization
+- **Run history & audit:** every run, who triggered it, what changed
+- **Notifications:** Slack, email, Microsoft Teams, webhooks
+- **SSO** (SAML/OIDC) and audit logs for enterprises
+
+### Governance
+- **Policy as code** with **Sentinel** or **OPA** (Open Policy Agent), grouped in **policy sets** and applied to the organization, projects or specific workspaces
+  - Policies run **after the plan, before apply**
+  - Sentinel enforcement levels: **advisory** (warn), **soft-mandatory** (fail, but authorized users can override), **hard-mandatory** (fail, no override)
+  - OPA levels: advisory, mandatory
+  - Examples: "only approved instance types", "all resources must have a `cost-center` tag"
+- **Run tasks:** integrate third-party tools (security scanners, cost tools…) at pre-plan, post-plan, pre-apply or post-apply stages
+- **Cost estimation:** estimated monthly cost change in the run (supported resources)
+- **Private registry:** publish modules and providers internally; **no-code provisioning** lets non-experts deploy approved modules without writing HCL
+- **Health assessments:** scheduled **drift detection** and **continuous validation** (re-checks `check` blocks and conditions)
+- **Variable sets:** share variables (like cloud credentials) across many workspaces/projects
+- **Dynamic provider credentials:** OIDC-based short-lived credentials for AWS/Azure/GCP/Vault, so no static keys are stored
+'''
+
+[[stages.questions]]
+type = "single"
+q = "When are Sentinel/OPA policies evaluated during an HCP Terraform run?"
+options = ["Before the plan", "After the plan and before the apply", "After the apply", "Only nightly"]
+answer = 1
+obj = "8b"
+explain = "Policies check the planned changes before they're applied."
+
+[[stages.questions]]
+type = "single"
+q = "Which Sentinel enforcement level fails the run but lets authorized users override it?"
+options = ["advisory", "soft-mandatory", "hard-mandatory", "optional"]
+answer = 1
+obj = "8b"
+explain = "advisory = warn only; soft-mandatory = can be overridden; hard-mandatory = cannot be overridden."
+
+[[stages.questions]]
+type = "multi"
+q = "Which policy-as-code frameworks does HCP Terraform support? (choose 2)"
+options = ["Sentinel", "Open Policy Agent (OPA)", "Checkov only", "AWS Config Rules"]
+answer = [0, 1]
+obj = "8b"
+explain = "Sentinel (HashiCorp) and OPA (Rego). Other tools can integrate through run tasks."
+
+[[stages.questions]]
+type = "single"
+q = "What HCP Terraform feature integrates third-party tools (e.g. a security scanner) into specific stages of a run?"
+options = ["Variable sets", "Run tasks", "Run triggers", "Agents"]
+answer = 1
+obj = "8b"
+explain = "Run tasks call external services at pre-plan, post-plan, pre-apply or post-apply."
+
+[[stages.questions]]
+type = "single"
+q = "Your organization wants to share approved, internally built modules so teams can reuse them. What feature fits best?"
+options = ["The public Terraform Registry", "HCP Terraform's private registry", "A shared state file", "Workspace tags"]
+answer = 1
+obj = "8b"
+explain = "The private registry hosts organization-only modules and providers, with versioning."
+
+[[stages.questions]]
+type = "single"
+q = "Which feature periodically checks whether real infrastructure has drifted from the last applied state?"
+options = ["Cost estimation", "Health assessments (drift detection)", "Speculative plans", "Sentinel"]
+answer = 1
+obj = "8b"
+explain = "Health assessments run drift detection and continuous validation on a schedule."
+
+[[stages.questions]]
+type = "single"
+q = "How can HCP Terraform avoid storing long-lived cloud access keys in workspace variables?"
+options = ["Dynamic provider credentials (OIDC workload identity)", "Hiding them with `sensitive`", "Putting them in tags", "Using local execution"]
+answer = 0
+obj = "8b"
+explain = "Dynamic credentials generate short-lived credentials per run."
+
+[[stages.questions]]
+type = "single"
+q = "Which workspace permission level lets a team queue plans but NOT apply them?"
+options = ["Read", "Plan", "Write", "Admin"]
+answer = 1
+obj = "8b"
+explain = "Read = view; Plan = queue plans; Write = also apply and lock; Admin = manage settings and access."
+
+[[stages]]
+id = "s3"
+title = "Workspaces & projects"
+lesson = '''
+### Hierarchy
+```
+Organization
+ └── Project  (e.g. "payments")
+      ├── Workspace: payments-network-prod
+      ├── Workspace: payments-app-prod
+      └── Workspace: payments-app-staging
+```
+
+### HCP Terraform workspaces
+A workspace is how HCP Terraform organizes infrastructure. Each one has its **own**:
+- **State** (and state history)
+- **Variables**: Terraform variables and **environment variables**, optionally **sensitive** (write-only in the UI/API)
+- **Run history**, settings (Terraform version, execution mode, auto-apply, VCS repo + working directory)
+- **Access permissions**
+
+Best practice: split infrastructure into **small workspaces** by component and environment (e.g. network vs app, staging vs prod), which limits blast radius and allows different access.
+
+> ⚠️ **Not the same as CLI workspaces!** CLI workspaces are just multiple state files for one config in one backend. HCP Terraform workspaces are full units with their own variables, permissions and runs.
+
+### Projects
+- Group related workspaces (by team, application or business unit)
+- Grant **team permissions at the project level**, so they apply to every workspace inside
+- Scope **variable sets** and **policy sets** to projects
+
+### Connecting workspaces
+- **Run triggers:** when workspace A applies successfully, automatically queue a run in workspace B (e.g. network → app)
+- **Sharing outputs:** a workspace can allow others to read its state outputs; consumers use the `tfe_outputs` data source (from the `tfe` provider) or `terraform_remote_state`
+- **Variable sets:** apply the same variables to many workspaces, globally or by project
+
+### Variable precedence in HCP Terraform (simplified)
+Workspace-specific variables override variable sets. Among variable sets, project-scoped ones override global ones, and **priority variable sets** override everything (including workspace variables and CLI `-var`).
+'''
+
+[[stages.questions]]
+type = "single"
+q = "How are HCP Terraform workspaces different from CLI workspaces?"
+options = [
+  "They're identical",
+  "HCP Terraform workspaces have their own state, variables, permissions and run history; CLI workspaces are just alternate state files for one config",
+  "CLI workspaces have more features",
+  "HCP Terraform doesn't use workspaces",
+]
+answer = 1
+obj = "8c"
+explain = "Same name, very different concept."
+
+[[stages.questions]]
+type = "single"
+q = "What is the purpose of **projects** in HCP Terraform?"
+options = [
+  "To store Terraform code",
+  "To group related workspaces and manage permissions, variable sets and policies for them together",
+  "To replace organizations",
+  "To run Terraform locally",
+]
+answer = 1
+obj = "8c"
+explain = "Projects organize workspaces and simplify access management."
+
+[[stages.questions]]
+type = "single"
+q = "The app workspace should automatically plan whenever the network workspace finishes a successful apply. What do you configure?"
+options = ["A variable set", "A run trigger", "A policy set", "Auto-apply on the network workspace"]
+answer = 1
+obj = "8c"
+explain = "Run triggers connect workspaces: a source's successful apply queues a run in the target."
+
+[[stages.questions]]
+type = "single"
+q = "You need the same AWS credentials (environment variables) in 30 workspaces. What's the best approach?"
+options = ["Copy them into each workspace", "Create a variable set and apply it to those workspaces or their project", "Put them in a module", "Store them in the state"]
+answer = 1
+obj = "8c"
+explain = "Variable sets are reusable collections of variables. (Even better: dynamic credentials.)"
+
+[[stages.questions]]
+type = "multi"
+q = "Which belong to an individual HCP Terraform workspace? (choose 3)"
+options = ["Its own state", "Its own variables", "Its own run history", "Its own organization", "Its own copy of the private registry"]
+answer = [0, 1, 2]
+obj = "8c"
+explain = "Organizations contain workspaces, and the registry is organization-wide."
+
+[[stages.questions]]
+type = "single"
+q = "Which data source reads another HCP Terraform workspace's outputs?"
+options = ["`data \"tfe_outputs\"`", "`data \"hcp_state\"`", "`data \"workspace_output\"`", "`data \"cloud_outputs\"`"]
+answer = 0
+obj = "8c"
+explain = "`tfe_outputs` from the `tfe` provider. `terraform_remote_state` also works."
+
+[[stages.questions]]
+type = "single"
+q = "What two kinds of variables can you set in an HCP Terraform workspace?"
+options = ["Local and global", "Terraform variables and environment variables", "Public and private", "Input and output"]
+answer = 1
+obj = "8c"
+explain = "Terraform variables (`var.x`) and environment variables (e.g. `AWS_REGION`, `TF_LOG`). Either can be marked sensitive."
+
+[[stages]]
+id = "s4"
+title = "Configuring the HCP Terraform integration"
+lesson = '''
+### 1. Authenticate
+```bash
+terraform login              # opens the browser, creates an API token
+```
+The token is saved to `~/.terraform.d/credentials.tfrc.json`. In CI, set the token through an environment variable instead:
+`TF_TOKEN_app_terraform_io=<token>` (dots in the hostname become underscores).
+
+### 2. Add a `cloud` block (Terraform 1.1+)
+```hcl
+terraform {
+  cloud {
+    organization = "acme"
+    # hostname   = "app.terraform.io"   # default; set it for Terraform Enterprise
+
+    workspaces {
+      name = "payments-app-prod"        # one specific workspace
+      # tags    = ["payments", "app"]   # OR: any workspace with these tags
+      # project = "payments"
+    }
+  }
+}
+```
+- Can't be combined with a `backend` block
+- Values can come from env vars: `TF_CLOUD_ORGANIZATION`, `TF_CLOUD_HOSTNAME`, `TF_CLOUD_PROJECT`, `TF_WORKSPACE`
+- With `tags`, use `terraform workspace list` / `select` to choose among the matching workspaces
+
+### 3. `terraform init`
+Connects to HCP Terraform. If you had local (or other backend) state, init offers to **migrate it** into the workspace.
+
+### 4. Plan and apply
+- `terraform plan` starts a **speculative plan** remotely and streams it
+- `terraform apply` runs remotely (when the workspace uses remote execution) and asks for confirmation in the terminal or the UI
+- Variables come from the **workspace/variable sets**, not your local `terraform.tfvars` (for remote runs, `*.auto.tfvars` files uploaded with the config are still read)
+
+### API tokens
+| Token | Scope |
+|---|---|
+| User token | Acts as the user (`terraform login` creates one) |
+| Team token | Acts as a team (common for CI) |
+| Organization token | Manages organization settings, workspaces, teams; **can't** start runs |
+| Audit trail token | Reads audit events only |
+'''
+
+[[stages.questions]]
+type = "fill"
+q = "Which command authenticates the Terraform CLI with HCP Terraform and stores an API token?"
+answer = ["terraform login"]
+obj = "8d"
+explain = "`terraform login` (and `terraform logout` removes it)."
+
+[[stages.questions]]
+type = "single"
+q = "Which block connects a configuration to HCP Terraform (Terraform 1.1+)?"
+options = ["`backend \"hcp\"`", "`cloud { organization = ... workspaces { ... } }` inside the `terraform` block", "`provider \"tfe\"`", "`hcp { }` at the top level"]
+answer = 1
+obj = "8d"
+explain = "The `cloud` block. (The older `backend \"remote\"` still exists, but `cloud` is the recommended way.)"
+
+[[stages.questions]]
+type = "single"
+q = "Where does `terraform login` save the API token by default?"
+options = ["`.terraform.lock.hcl`", "`~/.terraform.d/credentials.tfrc.json`", "`terraform.tfvars`", "`/etc/terraform/token`"]
+answer = 1
+obj = "8d"
+explain = "`~/.terraform.d/credentials.tfrc.json` (CLI configuration can change it)."
+
+[[stages.questions]]
+type = "fill"
+q = "Which environment variable provides an API token for `app.terraform.io` in CI?"
+answer = ["TF_TOKEN_app_terraform_io"]
+case_sensitive = true
+obj = "8d"
+explain = "`TF_TOKEN_<hostname with dots replaced by underscores>`."
+
+[[stages.questions]]
+type = "single"
+q = "Can a configuration contain both a `cloud` block and a `backend` block?"
+options = ["Yes", "No, they are mutually exclusive", "Only for Terraform Enterprise", "Only with workspaces tags"]
+answer = 1
+obj = "8d"
+explain = "Use one or the other."
+
+[[stages.questions]]
+type = "single"
+q = "You add a `cloud` block to a project that already has local state and run `terraform init`. What happens?"
+options = [
+  "Local state is deleted",
+  "Terraform offers to migrate the existing state into the HCP Terraform workspace",
+  "Init fails",
+  "HCP Terraform re-creates all resources",
+]
+answer = 1
+obj = "8d"
+explain = "Init detects the change and migrates state into the workspace."
+
+[[stages.questions]]
+type = "single"
+q = "In the `cloud` block, what does `workspaces { tags = [\"app\"] }` do?"
+options = [
+  "Creates a workspace named app",
+  "Lets the configuration use any workspace tagged `app`; you pick one with `terraform workspace select`",
+  "Tags all resources with app",
+  "Restricts the plan to tagged resources",
+]
+answer = 1
+obj = "8d"
+explain = "Tag-based selection maps the config to multiple workspaces."
+
+[[stages.questions]]
+type = "single"
+q = "Which token type can manage organization settings but cannot start runs?"
+options = ["User token", "Team token", "Organization token", "Audit trail token"]
+answer = 2
+obj = "8d"
+explain = "Organization tokens are for managing the organization (creating workspaces, teams…), not for runs."
+
+[[stages]]
+id = "boss"
+title = "Boss: The Cloud Titan"
+boss = true
+lesson = "The final world boss. Workflows, governance, workspaces, projects, and the cloud block. 80% to pass. Beat it to unlock the Final Boss practice exam!"
+
+[[stages.questions]]
+type = "single"
+q = "A security team requires that no plan creating a public S3 bucket may ever be applied, with no exceptions. Which HCP Terraform feature and level?"
+options = ["Run task, advisory", "Sentinel policy, hard-mandatory", "Sentinel policy, soft-mandatory", "Variable set"]
+answer = 1
+obj = "8b"
+explain = "Hard-mandatory policies can't be overridden."
+
+[[stages.questions]]
+type = "single"
+q = "Which statement about speculative plans is TRUE?"
+options = [
+  "They can be applied after approval",
+  "They are plan-only runs that cannot be applied",
+  "They only run on a schedule",
+  "They skip refresh",
+]
+answer = 1
+obj = "8a"
+explain = "Speculative plans show impact (PRs, CLI plan) and can't be applied."
+
+[[stages.questions]]
+type = "single"
+q = "Your company groups all workspaces of the Payments team and wants to grant that team access to all of them at once. What should you use?"
+options = ["A CLI workspace", "A project with team permissions", "A run trigger", "A policy set"]
+answer = 1
+obj = "8c"
+explain = "Project-level permissions apply to every workspace in the project."
+
+[[stages.questions]]
+type = "single"
+q = "Which `cloud` block arguments could be supplied by environment variables instead? (best answer)"
+options = [
+  "None",
+  "`organization`, `hostname`, `project` and the workspace name (`TF_CLOUD_ORGANIZATION`, `TF_CLOUD_HOSTNAME`, `TF_CLOUD_PROJECT`, `TF_WORKSPACE`)",
+  "Only `token`",
+  "Only `tags`",
+]
+answer = 1
+obj = "8d"
+explain = "These env vars let one config be reused across organizations or workspaces."
+
+[[stages.questions]]
+type = "multi"
+q = "Which features help with governance in HCP Terraform? (choose 3)"
+options = ["Sentinel/OPA policy sets", "Run tasks", "Team permissions", "`terraform fmt`", "Local execution mode"]
+answer = [0, 1, 2]
+obj = "8b"
+explain = "Policies, run tasks and access control are governance features."
+
+[[stages.questions]]
+type = "single"
+q = "A workspace has auto-apply disabled. A VCS push triggers a run, and the plan succeeds. What's the run's state?"
+options = ["Applied", "Waiting for confirmation (needs a user to approve the apply)", "Discarded", "Errored"]
+answer = 1
+obj = "8a"
+explain = "Without auto-apply, someone with permission must confirm."
+
+[[stages.questions]]
+type = "single"
+q = "What is Terraform Enterprise?"
+options = [
+  "A paid Terraform CLI with extra commands",
+  "The self-hosted distribution of HCP Terraform",
+  "A Terraform provider",
+  "The free tier of HCP Terraform",
+]
+answer = 1
+obj = "8a"
+explain = "Terraform Enterprise = self-hosted; HCP Terraform = SaaS."
+
+[[stages.questions]]
+type = "single"
+q = "Where do remote runs in HCP Terraform get their Terraform variable values from?"
+options = [
+  "Your laptop's `terraform.tfvars` file only",
+  "Workspace variables and variable sets (plus `*.auto.tfvars` uploaded with the configuration)",
+  "The state file",
+  "Environment variables on your laptop",
+]
+answer = 1
+obj = "8d"
+explain = "For remote execution, set variables in the workspace or in variable sets."
+
+[[stages.questions]]
+type = "single"
+q = "What must be true for workspace B to read workspace A's outputs via `tfe_outputs`?"
+options = ["Nothing", "Workspace A's state sharing settings must allow B (or the whole organization) to access it", "They must use the same VCS repo", "They must be in local execution mode"]
+answer = 1
+obj = "8c"
+explain = "Remote state sharing is controlled in the source workspace's settings."

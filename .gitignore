@@ -426,3 +426,12 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# ---- TerraQuest / Python ----
+__pycache__/
+*.py[cod]
+.venv/
+# Lab sandboxes and progress live outside the repo (~/.local/share/terraquest), but ignore Terraform files in case someone runs terraform here
+.terraform/
+*.tfstate
+*.tfstate.*
